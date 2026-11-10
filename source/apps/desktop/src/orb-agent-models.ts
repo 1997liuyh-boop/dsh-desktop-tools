@@ -1,10 +1,9 @@
 
 
-import { readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { readDesktopToolsConfig, writeDesktopToolsConfig } from './desktop-tools-config.ts'
 
 
-export const ORB_AGENT_MODELS_FILE = 'orb-agent-models.json'
+export const ORB_AGENT_MODELS_FILE = 'desktop-tools.json'
 
 
 export interface OrbAgentModelSelection {
@@ -25,16 +24,6 @@ export const DEFAULT_ORB_AGENT_MODEL: OrbAgentModelSelection = {
   model: 'deepseek-flash',
   reasoningEffort: 'max',
 }
-
-const DEFAULT_MODELS: OrbAgentModels = {
-  overlay: DEFAULT_ORB_AGENT_MODEL,
-  background: DEFAULT_ORB_AGENT_MODEL,
-}
-
-
-
-
-
 
 export function isOrbAgentModelSelection(value: unknown): value is OrbAgentModelSelection {
   return parseSelection(value, { provider: '', model: '' }).provider !== ''
@@ -74,17 +63,10 @@ function parseSelection(value: unknown, fallback: OrbAgentModelSelection): OrbAg
 
 
 export function readOrbAgentModels(profileDir: string): OrbAgentModels {
-  try {
-    const value: unknown = JSON.parse(readFileSync(join(profileDir, ORB_AGENT_MODELS_FILE), 'utf8'))
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return DEFAULT_MODELS
-    const record = value as { overlay?: unknown; background?: unknown }
-    return {
-      overlay: parseSelection(record.overlay, DEFAULT_ORB_AGENT_MODEL),
-      background: parseSelection(record.background, DEFAULT_ORB_AGENT_MODEL),
-    }
-  } catch {
-
-    return DEFAULT_MODELS
+  const config = readDesktopToolsConfig(profileDir).floatingBall
+  return {
+    overlay: parseSelection(config.conversationModel, DEFAULT_ORB_AGENT_MODEL),
+    background: parseSelection(config.backgroundModel, DEFAULT_ORB_AGENT_MODEL),
   }
 }
 
@@ -94,13 +76,15 @@ export function readOrbAgentModels(profileDir: string): OrbAgentModels {
 
 
 export function writeOrbAgentModels(profileDir: string, models: OrbAgentModels): void {
-  writeFileSync(
-    join(profileDir, ORB_AGENT_MODELS_FILE),
-    `${JSON.stringify({
-      overlay: serializeSelection(models.overlay),
-      background: serializeSelection(models.background),
-    }, undefined, 2)}\n`,
-  )
+  const current = readDesktopToolsConfig(profileDir)
+  writeDesktopToolsConfig(profileDir, {
+    ...current,
+    floatingBall: {
+      ...current.floatingBall,
+      conversationModel: serializeSelection(models.overlay),
+      backgroundModel: serializeSelection(models.background),
+    },
+  })
 }
 
 function serializeSelection(selection: OrbAgentModelSelection): OrbAgentModelSelection {

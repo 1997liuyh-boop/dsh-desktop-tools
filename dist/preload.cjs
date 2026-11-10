@@ -1,5 +1,5 @@
 let electron = require("electron");
-//#region source/apps/desktop/src/ipc.ts
+// source/apps/desktop/src/ipc.ts
 const DESKTOP_IPC = {
 	captureResult: "dsh-desktop:capture-result",
 	fileSave: "dsh-desktop:file-save",
@@ -88,8 +88,7 @@ const DESKTOP_IPC = {
 	orbSetMillifractionEnabled: "dsh-desktop:orb-set-millifraction-enabled",
 	orbOpenTcc: "dsh-desktop:orb-open-tcc"
 };
-//#endregion
-//#region source/apps/desktop/src/preload.ts
+// source/apps/desktop/src/preload.ts
 const floating = {
 	sessionCatalog: () => electron.ipcRenderer.invoke(DESKTOP_IPC.floatingCatalogGet),
 	navigateSession: (request) => electron.ipcRenderer.invoke(DESKTOP_IPC.floatingNavigate, request),
@@ -237,4 +236,3 @@ electron.contextBridge.exposeInMainWorld("dshDesktop", {
 	floating: standaloneFloating,
 	selection
 });
-//#endregion

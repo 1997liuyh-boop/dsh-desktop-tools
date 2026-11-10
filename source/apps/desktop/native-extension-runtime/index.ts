@@ -1,8 +1,6 @@
 /** 官方 DSH 通过可注入服务管理独立原生插件，不依赖桌面扩展 API。 */
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
@@ -10,6 +8,7 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import { DesktopToolsController, DesktopToolsService } from './desktop-tools-service.ts'
 import { createNativeHostBridge } from './host.ts'
 
 interface Descriptor {
@@ -26,24 +25,20 @@ interface RuntimeConfig {
   readonly stopTimeoutMs: number
 }
 
-declare module '@deepseek-ai/cordis' {
-  interface Context { desktopNativeRuntime: NativeRuntime }
-}
-
 /** 原生插件共用的 Electron 进程；每个插件独立等待激活和释放回执。 */
 export class NativeRuntime {
   private child: ChildProcess | undefined
   private started: Promise<void> | undefined
   private closed = false
   private failure: Error | undefined
-  private readonly waiting = new Map<string, { readonly pluginId?: string; readonly action?: 'activate' | 'deactivate'; resolve(): void; reject(error: Error): void }>()
+  private readonly waiting = new Map<string, { readonly pluginId?: string; readonly action?: 'activate' | 'deactivate'; resolve(value?: unknown): void; reject(error: Error): void }>()
   private readonly bridge: ReturnType<typeof createNativeHostBridge>
   private exit: Promise<void> | undefined
   private stopping: Promise<void> | undefined
   private disposing: Promise<void> | undefined
 
   /** @param ctx 官方服务与当前配置目录。 @param config 进程等待时限与可执行文件覆盖。 */
-  constructor(private readonly ctx: Context, private readonly config: RuntimeConfig) {
+  constructor(private readonly ctx: Context, private readonly config: RuntimeConfig, private readonly onFailure?: (error: Error) => void) {
     this.bridge = createNativeHostBridge(ctx, message => this.send(message))
   }
 
@@ -53,6 +48,26 @@ export class NativeRuntime {
     await this.operation('activate', descriptor)
     let released: Promise<void> | undefined
     return () => { released ??= this.operation('deactivate', descriptor); return released }
+  }
+
+  /** @param command 辅助进程命令。 @param input 已校验参数。 */
+  async command(command: 'capture-open' | 'permissions-status' | 'permission-open' | 'avatar-refresh', input: {
+    readonly mode?: 'image' | 'video'
+    readonly right?: 'screen' | 'accessibility'
+  }): Promise<unknown> {
+    await this.start()
+    const requestId = randomUUID()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await new Promise<unknown>((resolveCommand, reject) => {
+        this.waiting.set(requestId, { resolve: resolveCommand, reject })
+        timer = setTimeout(() => { reject(new Error(`桌面工具命令超时: ${command}`)) }, this.config.operationTimeoutMs)
+        this.send({ type: 'desktop-tools-command', requestId, command, input })
+      })
+    } finally {
+      clearTimeout(timer)
+      this.waiting.delete(requestId)
+    }
   }
 
   private send(message: object): void {
@@ -69,6 +84,7 @@ export class NativeRuntime {
     for (const pending of this.waiting.values()) pending.reject(error)
     this.waiting.clear()
     this.ctx.logger.error('DSH native desktop helper failed: %s', error.message)
+    this.onFailure?.(error)
     void this.stopChild().catch((stopError: unknown) => { this.ctx.logger.error('Native desktop helper shutdown failed: %s', String(stopError)) })
   }
 
@@ -80,11 +96,9 @@ export class NativeRuntime {
   }
 
   private async launch(): Promise<void> {
-    let executable = this.config.electronExecutable
-    if (executable === undefined) {
-      const require = createRequire(import.meta.url)
-      const electronRoot = dirname(require.resolve('electron/package.json'))
-      executable = join(electronRoot, 'dist', (await readFile(join(electronRoot, 'path.txt'), 'utf8')).trim())
+    const executable = this.config.electronExecutable ?? process.execPath
+    if (this.config.electronExecutable === undefined && process.versions.electron === undefined) {
+      throw new Error('桌面工具仅支持在 DSH Desktop 中启动')
     }
     if (this.closed) throw new Error('Native desktop runtime was disabled before launch')
     const environment = Object.fromEntries(Object.entries(process.env).filter(([key, value]) => value !== undefined
@@ -124,6 +138,13 @@ export class NativeRuntime {
     child.on('message', (message: unknown) => {
       if (this.bridge.handle(message)) return
       if (typeof message !== 'object' || message === null || !('type' in message)) return
+      if (message.type === 'desktop-tools-command-result' && 'requestId' in message && typeof message.requestId === 'string') {
+        const pending = this.waiting.get(message.requestId)
+        if (!pending) return
+        if ('ok' in message && message.ok === true) pending.resolve('value' in message ? message.value : undefined)
+        else pending.reject(new Error('error' in message && typeof message.error === 'string' ? message.error : '桌面工具命令失败'))
+        return
+      }
       if (message.type === 'desktop-extension-result' && 'requestId' in message && typeof message.requestId === 'string') {
         const pending = this.waiting.get(message.requestId)
         if (!pending || !('id' in message) || message.id !== pending.pluginId) return
@@ -214,8 +235,8 @@ export class NativeRuntime {
   }
 }
 
-/** 官方插件管理器加载的共享运行时。 */
-export const name = 'dsh-desktop-runtime'
+/** 官方插件管理器加载的桌面工具套件。 */
+export const name = 'dsh-desktop-tools'
 /** 必需服务均由官方 DSH 提供；缺失时由 Cordis 报告。 */
 export const inject = ['profileContext', 'connection', 'typertGateway']
 /** 可执行文件与等待时限可在插件设置中覆盖。 */
@@ -225,9 +246,18 @@ export const Config = z.object({
 })
 /** @param ctx 官方注入的服务。 @param config 已校验的运行配置。 */
 export function apply(ctx: Context, config: RuntimeConfig): void {
-  const runtime = new NativeRuntime(ctx, config)
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+  const controller = new DesktopToolsController({
+    ctx,
+    profileDir: ctx.profileContext.dir,
+    root,
+    createRuntime: onFailure => new NativeRuntime(ctx, config, onFailure),
+  })
+  new DesktopToolsService(ctx, controller)
   ctx.effect(() => {
-    ctx.provide('desktopNativeRuntime', runtime)
-    return () => runtime.dispose()
+    void controller.start().catch((error: unknown) => {
+      ctx.logger.error('桌面工具后台启动失败: %s', error instanceof Error ? error.message : String(error))
+    })
+    return () => controller.dispose()
   })
 }

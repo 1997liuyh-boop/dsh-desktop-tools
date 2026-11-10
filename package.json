@@ -1,12 +1,14 @@
 {
-  "name": "dsh-desktop-runtime",
-  "version": "0.1.1",
+  "name": "dsh-desktop-tools",
+  "version": "0.3.0",
   "type": "module",
   "license": "MIT",
-  "description": "Independent native plugin runtime for the official DSH desktop application",
+  "description": "Desktop selection toolbar, floating assistant, screenshots and screen recording for DSH",
   "main": "./dist/index.js",
   "exports": {
     ".": "./dist/index.js",
+    "./client": "./dist/client.js",
+    "./remote": "./dist/remote.js",
     "./package.json": "./package.json"
   },
   "engines": {
@@ -17,6 +19,8 @@
     "dist",
     "assets",
     "source",
+    "build-assets.mjs",
+    "build-client.mjs",
     "tsconfig.json",
     "tsdown.config.mjs",
     "cordis.patch.yml",
@@ -25,14 +29,27 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsdown --config-loader native",
+    "build": "node build-assets.mjs && tsdown --config-loader native && node build-client.mjs",
+    "test": "node --experimental-strip-types --test source/apps/desktop/src/desktop-tools-config.test.ts source/apps/desktop/src/koffi-platform.test.ts",
     "prepare": "npm run build"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/1997liuyh-boop/dsh-desktop-runtime.git"
+    "url": "https://github.com/1997liuyh-boop/dsh-desktop-tools.git"
   },
   "dsh": {
+    "client": {
+      "external": [
+        "@deepseek-ai/dsh-typert-protocol/remote-info"
+      ],
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-shortcuts",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web"
+    },
     "bundle": {
       "patch": "./cordis.patch.yml",
       "platforms": [
@@ -49,8 +66,16 @@
     }
   },
   "dependencies": {
-    "electron": "^44.7.0",
-    "zod": "^4.4.3"
+    "@napi-rs/canvas": "1.0.8",
+    "pdfjs-dist": "6.3.289",
+    "turndown": "7.2.4",
+    "zod": "4.4.3"
+  },
+  "optionalDependencies": {
+    "@koromix/koffi-darwin-arm64": "3.1.1",
+    "@koromix/koffi-darwin-x64": "3.1.1",
+    "@koromix/koffi-win32-arm64": "3.1.1",
+    "@koromix/koffi-win32-x64": "3.1.1"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
@@ -58,9 +83,15 @@
     "@deepseek-ai/dsh-app-boot": "*",
     "@deepseek-ai/dsh-client-connection": "*",
     "@deepseek-ai/dsh-api-gateway": "*",
+    "@deepseek-ai/dsh-typert-protocol": "*",
     "@deepseek-ai/dsh-permission-presets": "*",
     "@deepseek-ai/dsh-session": "*",
-    "@deepseek-ai/dsh-host-webserver": "*"
+    "@deepseek-ai/dsh-host-webserver": "*",
+    "@deepseek-ai/dsh-api-remotes": "*",
+    "@deepseek-ai/dsh-client-locale": "*",
+    "@deepseek-ai/dsh-client-shortcuts": "*",
+    "@deepseek-ai/dsh-client-ui-settings": "*",
+    "@deepseek-ai/dsh-client-ui-slots": "*"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
@@ -78,6 +109,9 @@
     "@deepseek-ai/dsh-api-gateway": {
       "optional": true
     },
+    "@deepseek-ai/dsh-typert-protocol": {
+      "optional": true
+    },
     "@deepseek-ai/dsh-permission-presets": {
       "optional": true
     },
@@ -86,10 +120,32 @@
     },
     "@deepseek-ai/dsh-host-webserver": {
       "optional": true
+    },
+    "@deepseek-ai/dsh-api-remotes": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-locale": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-shortcuts": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-settings": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-slots": {
+      "optional": true
     }
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.0",
+    "@types/turndown": "5.0.6",
+    "micromark": "^4.0.2",
+    "micromark-extension-gfm": "^3.0.0",
+    "postcss": "^8.5.0",
+    "tailwindcss": "^4.1.0",
     "tsdown": "^0.22.2",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vite": "^6.4.3"
   }
 }

@@ -1,47 +1,48 @@
-# dsh-desktop-runtime
+# dsh-desktop-tools
 
-English | [中文](README.zh.md)
+[English](README.md) | [中文](README.zh.md)
 
-Repository name: `dsh-desktop-runtime`
+`dsh-desktop-tools` is one DSH Desktop plugin for the selection toolbar, floating assistant, screenshots, and screen recording.
 
-Repository description: Independent native plugin runtime for the official DSH desktop application.
+## Install
 
-## Description
+Use DSH Desktop `>=0.2.2-rc.1 <0.3.0-0`, then add this repository as one plugin:
 
-`dsh-desktop-runtime` runs the floating ball, selection toolbar, and capture plugins in one independent Electron helper connected to official DSH services. It leaves the official application files unchanged and does not require the old Desktop extension API.
+```text
+https://github.com/1997liuyh-boop/dsh-desktop-tools.git
+```
 
-## Features
+Install tag `0.3.0`. The plugin includes its own helper, preload, native feature modules, static assets, and settings page. No separate `dsh-desktop-runtime`, `dsh-selection-toolbar`, `dsh-floating-ball`, or `dsh-capture` package is required.
 
-- Starts the helper only when a feature plugin activates.
-- Owns authenticated RPC and stream requests, activation acknowledgements, helper lifecycle, and the tray menu.
-- Lets each feature be enabled, disabled, or removed independently.
-- Waits for window and recording cleanup before stopping Electron.
-- Uses official sessions, model selection, and per-session permission presets.
-- Limits each unread pending response body to 8 MiB and cancels the related Host request when the limit is exceeded.
+Installation does not require an Electron `path.txt` file and does not use the `koffi` install script. The helper uses the DSH Desktop Electron executable and loads the matching prebuilt Koffi platform package.
 
-Installation and startup do not send a model request. The floating ball keeps its own conversation selection and does not follow the official main window's current conversation.
+## Replace earlier plugins
 
-## Installation
+If the profile already has any of the four earlier entries, remove `dsh-selection-toolbar`, `dsh-floating-ball`, `dsh-capture`, and `dsh-desktop-runtime` before installing `dsh-desktop-tools@0.3.0`, then restart the Host. The new plugin stores settings in `desktop-tools.json`; it does not import the retired packages' separate settings files. Its defaults enable the selection toolbar and floating assistant, and disable screenshots and recording.
 
-1. Use a DSH Desktop release that satisfies `>=0.2.2-rc.1 <0.3.0-0`.
-2. In the DSH plugin manager, choose **Add plugin**, enter `https://github.com/1997liuyh-boop/dsh-desktop-runtime.git`, and select the exact tag `0.1.1`.
-3. Enable `dsh-desktop-runtime`, then install the feature plugins at their `v0.2.1` tags.
-4. Allow the Electron install script if the package manager asks for build approval. Restart the Host when DSH requests it.
+## Settings
 
-The `electronExecutable` setting can select a locally installed compatible Electron 44 executable. Existing profile data stays in the same directory when the runtime is disabled or replaced. Git commits do not update an installed copy; install the exact release tag or archive to upgrade.
+The DSH settings panel adds one **Desktop tools** entry with four submenus:
+
+- Selection toolbar: enablement, target language, model, and compatibility copy.
+- Floating assistant: enablement, avatar, conversation/background models, permission preset, coordinate mode, and system permissions.
+- Screenshot: enablement and an editable `Ctrl/Cmd + Shift + S` shortcut.
+- Screen recording: enablement and an editable `Ctrl/Cmd + Shift + R` shortcut.
+
+Selection and floating assistant are enabled by default. Screenshot and recording are disabled by default. Configuration is stored in the profile's `desktop-tools.json`; each save reports both persistence and actual helper application status.
 
 ## Build
 
-Run `npm install` and `npm run build` with Node 24.9 or newer. The package includes the source and prebuilt `dist` entry. Build and protocol checks do not establish GUI acceptance; exercise selection, capture, and recording on each target OS.
+Use Node 24.9 or newer:
 
-## Origin
+```sh
+npm install --ignore-scripts
+npm test
+npm run build
+```
 
-This repository is part of [1997liuyh-boop/deepseek-harness](https://github.com/1997liuyh-boop/deepseek-harness) and retains the DeepSeek MIT notice.
+The build creates the Host, helper, preload, Remote descriptor, Client settings bundle, and TwCSS-based assets. macOS native modules are compiled when the build runs on macOS; Windows and Linux keep the Darwin-only modules unavailable.
 
-## Limitations
+## License
 
-Native feature packages run with local application privileges. Custom-fork coordinate modes and background code-agent configuration are unavailable. Electron's first installation downloads a platform binary unless `electronExecutable` is configured. GUI behavior still depends on the host OS and its capture, accessibility, and permission settings.
-
-## Version
-
-This README documents release `0.1.1`. The reproducible source is the `0.1.1` Git tag in this repository.
+MIT. The repository includes the DeepSeek MIT notice and third-party package licenses.

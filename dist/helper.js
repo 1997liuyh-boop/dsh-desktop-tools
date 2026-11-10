@@ -1,107 +1,11 @@
-import { BrowserWindow, Menu, Tray, app, ipcMain, nativeImage, protocol, session, shell } from "electron";
+import { n as SCHEME, r as assertDesktopSender, t as DESKTOP_IPC } from "./ipc-BHEFtoh4.js";
+import { randomUUID } from "node:crypto";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { randomUUID } from "node:crypto";
 import { readFile, realpath, stat } from "node:fs/promises";
+import { BrowserWindow, Menu, Tray, app, ipcMain, nativeImage, protocol, session, shell } from "electron";
 import { z } from "zod";
-//#region source/apps/desktop/src/ipc.ts
-const DESKTOP_IPC = {
-	captureResult: "dsh-desktop:capture-result",
-	fileSave: "dsh-desktop:file-save",
-	clipboardImageRead: "dsh-desktop:clipboard-image-read",
-	shortcutsInput: "dsh-desktop:shortcuts-input",
-	shortcutsCloseWindow: "dsh-desktop:shortcuts-close-window",
-	shortcutsGet: "dsh-desktop:shortcuts-get",
-	shortcutsEdit: "dsh-desktop:shortcuts-edit",
-	shortcutsChanged: "dsh-desktop:shortcuts-changed",
-	shortcutsRecording: "dsh-desktop:shortcuts-recording",
-	boot: "dsh-desktop:boot",
-	enterWorkspace: "dsh-desktop:enter-workspace",
-	onboardingActive: "dsh-desktop:onboarding-active",
-	onboardingApiKey: "dsh-desktop:onboarding-api-key",
-	bootFailed: "dsh-desktop:boot-failed",
-	browserAcquire: "dsh-desktop:browser-acquire",
-	browserRelease: "dsh-desktop:browser-release",
-	browserOpenRequested: "dsh-desktop:browser-open-requested",
-	directoryPick: "dsh-desktop:directory-pick",
-	fileDragPrepare: "dsh-desktop:file-drag-prepare",
-	fileDragCancel: "dsh-desktop:file-drag-cancel",
-	fileDragStart: "dsh-desktop:file-drag-start",
-	fileDragRelease: "dsh-desktop:file-drag-release",
-	deviceInfo: "dsh-desktop:device-info",
-	localeBootstrap: "dsh-desktop:locale-bootstrap",
-	localeChanged: "dsh-desktop:locale-changed",
-	updatesChannelGet: "dsh-desktop:updates-channel-get",
-	updatesChannelSet: "dsh-desktop:updates-channel-set",
-	updatesChannelChanged: "dsh-desktop:updates-channel-changed",
-	updatesStatus: "dsh-desktop:updates-status",
-	updatesOpen: "dsh-desktop:updates-open",
-	updatesPresentation: "dsh-desktop:updates-presentation",
-	nativeThemeSet: "dsh-desktop:native-theme-set",
-	windowFullscreen: "dsh-desktop:window-fullscreen",
-	windowsAppearance: "dsh-desktop:windows-appearance",
-	windowsMenu: "dsh-desktop:windows-menu",
-	floatingMove: "dsh-desktop:floating-move",
-	floatingClamp: "dsh-desktop:floating-clamp",
-	floatingUnsnap: "dsh-desktop:floating-unsnap",
-	floatingSetExpanded: "dsh-desktop:floating-set-expanded",
-	floatingFollowSession: "dsh-desktop:floating-follow-session",
-	floatingFollowState: "dsh-desktop:floating-follow-state",
-	floatingCatalog: "dsh-desktop:floating-catalog",
-	floatingCatalogGet: "dsh-desktop:floating-catalog-get",
-	floatingNavigate: "dsh-desktop:floating-navigate",
-	floatingSessionGet: "dsh-desktop:floating-session-get",
-	floatingSessionSet: "dsh-desktop:floating-session-set",
-	floatingOverlayModelGet: "dsh-desktop:floating-overlay-model-get",
-	floatingOverlayModel: "dsh-desktop:floating-overlay-model",
-	floatingOverlayPermissionGet: "dsh-desktop:floating-overlay-permission-get",
-	floatingOverlayPermissionSet: "dsh-desktop:floating-overlay-permission-set",
-	floatingOrbWorkspace: "dsh-desktop:floating-orb-workspace",
-	floatingFocusMain: "dsh-desktop:floating-focus-main",
-	floatingQuit: "dsh-desktop:floating-quit",
-	floatingRunning: "dsh-desktop:floating-running",
-	floatingEditing: "dsh-desktop:floating-editing",
-	floatingRestoreFront: "dsh-desktop:floating-restore-front",
-	floatingAvatarGet: "dsh-desktop:floating-avatar-get",
-	floatingAvatar: "dsh-desktop:floating-avatar",
-	floatingTccGet: "dsh-desktop:floating-tcc-get",
-	floatingTccOpen: "dsh-desktop:floating-tcc-open",
-	floatingTccRelaunch: "dsh-desktop:floating-tcc-relaunch",
-	floatingTcc: "dsh-desktop:floating-tcc",
-	floatingCreateSession: "dsh-desktop:floating-create-session",
-	floatingLocale: "dsh-desktop:floating-locale",
-	backendStatus: "dsh-desktop:backend-status",
-	backendState: "dsh-desktop:backend-state",
-	selectionPrompt: "dsh-desktop:selection-prompt",
-	selectionAttach: "dsh-desktop:selection-attach",
-	selectionSearch: "dsh-desktop:selection-search",
-	selectionTranslate: "dsh-desktop:selection-translate",
-	selectionAction: "dsh-desktop:selection-action",
-	selectionResult: "dsh-desktop:selection-result",
-	selectionResultState: "dsh-desktop:selection-result-state",
-	selectionSetLanguage: "dsh-desktop:selection-set-language",
-	selectionInteract: "dsh-desktop:selection-interact",
-	selectionSetContentSize: "dsh-desktop:selection-set-content-size",
-	selectionState: "dsh-desktop:selection-state",
-	orbSupported: "dsh-desktop:orb-supported",
-	orbSnapshot: "dsh-desktop:orb-snapshot",
-	orbPickAvatar: "dsh-desktop:orb-pick-avatar",
-	orbRestoreAvatar: "dsh-desktop:orb-restore-avatar",
-	orbSetOverlayModel: "dsh-desktop:orb-set-overlay-model",
-	orbSetBackgroundModel: "dsh-desktop:orb-set-background-model",
-	orbSetSelectionEnabled: "dsh-desktop:orb-set-selection-enabled",
-	orbSetMillifractionEnabled: "dsh-desktop:orb-set-millifraction-enabled",
-	orbOpenTcc: "dsh-desktop:orb-open-tcc"
-};
-const SCHEME = "dsh-app";
-function assertDesktopSender(event, hostnames) {
-	const senderFrame = event.senderFrame;
-	if (senderFrame === null) throw new Error("dsh desktop: rejected IPC without a sender frame");
-	const url = new URL(senderFrame.url);
-	if (url.protocol !== `dsh-app:` || !hostnames.includes(url.hostname)) throw new Error("dsh desktop: rejected IPC from an unowned renderer");
-}
-//#endregion
-//#region source/apps/desktop/src/desktop-feature-host.ts
+// source/apps/desktop/src/desktop-feature-host.ts
 /** 桌面扩展的原生资源、IPC 与跨扩展服务随各自作用域释放。 */
 /** 单个扩展的注册作用域；卸载先停入口，再逆序释放异步资源。 */
 var DesktopFeatureContext = class {
@@ -442,8 +346,7 @@ var DesktopFeatureHost = class {
 		} : { phase: state.phase };
 	}
 };
-//#endregion
-//#region source/apps/desktop/src/desktop-extensions.ts
+// source/apps/desktop/src/desktop-extensions.ts
 /** 通过 Host IPC 加载受信任的桌面插件，并管理资源与异步卸载。 */
 const pathSchema = z.string().min(1).max(4096).refine((value) => !value.includes("\0"));
 const identityFields = {
@@ -702,8 +605,7 @@ var DesktopExtensionLoader = class {
 		}
 	}
 };
-//#endregion
-//#region source/apps/desktop/src/locale.ts
+// source/apps/desktop/src/locale.ts
 /** Typed shell copy for every shipped language owned by the Electron shell. */
 const en = {
 	platformAccessTitle: "Verify access to DeepSeek",
@@ -2627,8 +2529,7 @@ function resolveDesktopStartupLocale(preference, languages) {
 	}
 	return resolveDesktopLocale("en");
 }
-//#endregion
-//#region source/apps/desktop/src/web-document.ts
+// source/apps/desktop/src/web-document.ts
 const MIME = {
 	".html": "text/html; charset=utf-8",
 	".js": "text/javascript; charset=utf-8",
@@ -2661,10 +2562,9 @@ async function serveWebDocument(request, root) {
 	const content = pathname === "/" || pathname === "/index.html" ? body.toString().replace("<head>", "<head><script>globalThis.__DSH_BOOT_READY__ = Promise.withResolvers()<\/script>") : new Uint8Array(body);
 	return new Response(request.method === "HEAD" ? null : content, { headers: { "content-type": MIME[extname(target)] ?? "application/octet-stream" } });
 }
-//#endregion
-//#region source/apps/desktop/native-extension-runtime/transport.ts
+// source/apps/desktop/native-extension-runtime/transport.ts
 /** 辅助进程通过父进程的官方服务读取 RPC 与可取消的数据流。 */
-const MAX_BUFFER_BYTES = 8 * 1024 * 1024;
+const MAX_BUFFER_BYTES = 8388608;
 /** 进程间传输只接受关联请求的响应；关闭时结束所有等待。 */
 var NativeTransport = class {
 	send;
@@ -2816,8 +2716,7 @@ var NativeTransport = class {
 		else if (entry.state.kind === "waiting") entry.reject(/* @__PURE__ */ new Error("Native response ended without headers"));
 	}
 };
-//#endregion
-//#region source/apps/desktop/native-extension-runtime/helper.ts
+// source/apps/desktop/native-extension-runtime/helper.ts
 /** 官方桌面插件的独立 Electron 辅助进程，不修改安装目录或主进程。 */
 protocol.registerSchemesAsPrivileged([{
 	scheme: SCHEME,
@@ -2931,6 +2830,47 @@ async function main() {
 			});
 			return;
 		}
+		if (message.type === "desktop-tools-command") {
+			const requestId = "requestId" in message && typeof message.requestId === "string" ? message.requestId : void 0;
+			if (requestId === void 0) return;
+			(async () => {
+				try {
+					if (!("command" in message) || typeof message.command !== "string" || !("input" in message) || typeof message.input !== "object" || message.input === null) throw new Error("桌面工具命令格式无效");
+					const input = message.input;
+					let value;
+					if (message.command === "capture-open" && "mode" in input && (input.mode === "image" || input.mode === "video")) {
+						const capture = features.service("capture");
+						if (capture === void 0) throw new Error("截图录屏功能尚未启用");
+						capture.open(input.mode);
+					} else if (message.command === "permissions-status") {
+						value = features.service("orb")?.systemPermissions();
+						if (value === void 0) throw new Error("悬浮球功能尚未启用");
+					} else if (message.command === "permission-open" && "right" in input && (input.right === "screen" || input.right === "accessibility")) {
+						const orb = features.service("orb");
+						if (orb === void 0) throw new Error("悬浮球功能尚未启用");
+						value = await orb.openSystemPermission(input.right);
+					} else if (message.command === "avatar-refresh") {
+						const orb = features.service("orb");
+						if (orb === void 0) throw new Error("悬浮球功能尚未启用");
+						orb.refreshAvatar();
+					} else throw new Error("桌面工具命令不受支持");
+					send({
+						type: "desktop-tools-command-result",
+						requestId,
+						ok: true,
+						value
+					});
+				} catch (error) {
+					send({
+						type: "desktop-tools-command-result",
+						requestId,
+						ok: false,
+						error: error instanceof Error ? error.message : String(error)
+					});
+				}
+			})();
+			return;
+		}
 		const event = parseDesktopExtensionEvent(message);
 		if (!event) return;
 		loader.handle(event).then(() => {
@@ -2974,5 +2914,4 @@ app.whenReady().then(main).catch((error) => {
 	console.error(error);
 	app.exit(1);
 });
-//#endregion
 export {};

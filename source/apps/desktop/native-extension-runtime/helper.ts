@@ -92,6 +92,41 @@ async function main(): Promise<void> {
       void stop().then(() => { app.exit(0) }, error => { console.error(error); app.exit(1) })
       return
     }
+    if (message.type === 'desktop-tools-command') {
+      const requestId = 'requestId' in message && typeof message.requestId === 'string' ? message.requestId : undefined
+      if (requestId === undefined) return
+      void (async () => {
+        try {
+          if (!('command' in message) || typeof message.command !== 'string'
+            || !('input' in message) || typeof message.input !== 'object' || message.input === null) {
+            throw new Error('桌面工具命令格式无效')
+          }
+          const input = message.input
+          let value: unknown
+          if (message.command === 'capture-open' && 'mode' in input && (input.mode === 'image' || input.mode === 'video')) {
+            const capture = features.service('capture')
+            if (capture === undefined) throw new Error('截图录屏功能尚未启用')
+            capture.open(input.mode)
+          } else if (message.command === 'permissions-status') {
+            value = features.service('orb')?.systemPermissions()
+            if (value === undefined) throw new Error('悬浮球功能尚未启用')
+          } else if (message.command === 'permission-open' && 'right' in input
+            && (input.right === 'screen' || input.right === 'accessibility')) {
+            const orb = features.service('orb')
+            if (orb === undefined) throw new Error('悬浮球功能尚未启用')
+            value = await orb.openSystemPermission(input.right)
+          } else if (message.command === 'avatar-refresh') {
+            const orb = features.service('orb')
+            if (orb === undefined) throw new Error('悬浮球功能尚未启用')
+            orb.refreshAvatar()
+          } else throw new Error('桌面工具命令不受支持')
+          send({ type: 'desktop-tools-command-result', requestId, ok: true, value })
+        } catch (error: unknown) {
+          send({ type: 'desktop-tools-command-result', requestId, ok: false, error: error instanceof Error ? error.message : String(error) })
+        }
+      })()
+      return
+    }
     const event = parseDesktopExtensionEvent(message)
     if (!event) return
     void loader.handle(event).then(() => {

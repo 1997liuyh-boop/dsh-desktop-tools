@@ -1,10 +1,9 @@
 
 
-import { readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { readDesktopToolsConfig, writeDesktopToolsConfig } from './desktop-tools-config.ts'
 
 
-export const MILLIFRACTION_COORDINATES_FILE = 'millifraction-coordinates.json'
+export const MILLIFRACTION_COORDINATES_FILE = 'desktop-tools.json'
 
 
 export interface MillifractionCoordinatesConfig {
@@ -27,17 +26,7 @@ export function defaultMillifractionEnabled(platform: NodeJS.Platform = process.
 
 
 export function readMillifractionCoordinates(profileDir: string): MillifractionCoordinatesConfig {
-  try {
-    const value: unknown = JSON.parse(readFileSync(join(profileDir, MILLIFRACTION_COORDINATES_FILE), 'utf8'))
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return shippedDefault()
-    const record = value as { enabled?: unknown }
-    return {
-      enabled: typeof record.enabled === 'boolean' ? record.enabled : shippedDefault().enabled,
-    }
-  } catch {
-
-    return shippedDefault()
-  }
+  return { enabled: readDesktopToolsConfig(profileDir).floatingBall.coordinateMode === 'millifraction' }
 }
 
 
@@ -49,16 +38,12 @@ export function writeMillifractionCoordinates(
   profileDir: string,
   config: MillifractionCoordinatesConfig,
 ): void {
-  writeFileSync(
-    join(profileDir, MILLIFRACTION_COORDINATES_FILE),
-    `${JSON.stringify({ enabled: config.enabled }, undefined, 2)}\n`,
-  )
+  const current = readDesktopToolsConfig(profileDir)
+  writeDesktopToolsConfig(profileDir, {
+    ...current,
+    floatingBall: { ...current.floatingBall, coordinateMode: config.enabled ? 'millifraction' : 'pixel' },
+  })
 }
-
-function shippedDefault(): MillifractionCoordinatesConfig {
-  return { enabled: defaultMillifractionEnabled() }
-}
-
 
 export type OrbCoordinateMode = 'millifraction' | 'pixel'
 
