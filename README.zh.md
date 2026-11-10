@@ -1,25 +1,47 @@
-# 桌面插件运行时
+# dsh-desktop-runtime
 
 [English](README.md) | 中文
 
-让独立安装的悬浮球、划词工具栏、截图录屏共用一个 Electron 辅助进程，通过官方 DSH 服务访问会话。不替换官方应用，不修改其安装文件，不要求 Desktop 扩展 API。
+仓库名称：`dsh-desktop-runtime`
 
-## 安装与升级
+仓库描述：面向官方 DSH 桌面应用的独立原生插件运行时。
 
-先在 DSH 插件管理中安装并启用本仓库，再安装各个原生功能插件。包管理器提示构建授权时，需要允许 Electron 安装脚本；首次安装会下载对应系统的独立 Electron 运行时。也可通过配置 `electronExecutable` 指定本机兼容的 Electron 44 可执行文件。
+## 仓库描述
 
-提交 Git 代码不会刷新已安装副本。升级时通过“添加插件”安装新的发布标签或归档，按提示重启 Host。现有数据保留在原 profile 目录。
+`dsh-desktop-runtime` 让悬浮球、划词工具栏、截图录屏插件共用一个独立 Electron 辅助进程，并通过官方 DSH 服务访问会话。它不修改官方应用文件，也不要求旧版 Desktop 扩展 API。
 
 ## 功能
 
-只有功能插件激活时才启动辅助进程。运行时负责已认证的 RPC 和流请求、逐插件激活回执、辅助进程和托盘菜单。各功能可以分别启用、停用和卸载；停用运行时会停止所有依赖功能，并等待窗口及录屏写盘清理后关闭 Electron。安装、启动均不会调用模型。
+- 只有功能插件激活时才启动辅助进程。
+- 负责已认证的 RPC 和流请求、激活回执、辅助进程生命周期和托盘菜单。
+- 允许分别启用、停用或卸载每个功能。
+- 关闭 Electron 前等待窗口和录屏清理完成。
+- 使用官方会话、模型选择和按会话设置的权限预设。
+- 每个待读取响应正文最多缓冲 8 MiB，超过上限时取消对应 Host 请求并向读取方报告错误。
 
-## 配置与限制
+安装和启动不会发送模型请求。悬浮球独立选择会话，不跟随官方主窗口当前会话。
 
-`startTimeoutMs`、`operationTimeoutMs`、`stopTimeoutMs` 分别设置启动、插件操作和退出时限。原生插件具有本机应用权限，使用官方会话、模型选择和会话权限预设。定制分支的坐标模式和后台代码代理配置不可用。悬浮球独立选择对话，不跟随官方主窗口的当前对话。构建和协议检查通过不等于 GUI 验收通过；需要在每个目标系统实际操作划词、截图及录屏。
+## 安装
 
-每个在途响应最多缓冲 8 MiB 未读取的正文。读取速度落后并超过上限时，读取方收到错误，对应 Host 请求被取消。此限制约束响应缓冲，不提供 IPC 通道的端到端流量控制。
+1. 使用满足 `>=0.2.2-rc.1 <0.3.0-0` 的 DSH Desktop 版本。
+2. 在 DSH 插件管理中选择“添加插件”，填写 `https://github.com/1997liuyh-boop/dsh-desktop-runtime.git`，并选择精确标签 `0.1.1`。
+3. 启用 `dsh-desktop-runtime`，再安装各功能插件的 `v0.2.1` 标签。
+4. 包管理器请求构建授权时允许 Electron 安装脚本；DSH 提示时重启 Host。
 
-## 构建与来源
+`electronExecutable` 配置可以指定本机已安装且兼容 Electron 44 的可执行文件。停用或替换运行时会保留原 profile 目录中的数据。提交 Git 代码不会刷新已安装副本；升级时安装精确标签或归档。
 
-使用 Node 24.9 或更新版本运行 `npm install`、`npm run build`。仓库包含源码，来自 [1997liuyh-boop/deepseek-harness](https://github.com/1997liuyh-boop/deepseek-harness)，保留 DeepSeek MIT 版权声明。
+## 构建
+
+使用 Node 24.9 或更新版本运行 `npm install` 和 `npm run build`。仓库包含源码和预构建的 `dist` 入口。构建和协议检查不代表 GUI 已验收；仍需在每个目标系统实际操作划词、截图和录屏。
+
+## 来源
+
+本仓库属于 [1997liuyh-boop/deepseek-harness](https://github.com/1997liuyh-boop/deepseek-harness)，并保留 DeepSeek MIT 版权声明。
+
+## 限制
+
+原生功能包具有本机应用权限。定制分支的坐标模式和后台代码代理配置不可用。未配置 `electronExecutable` 时，首次安装会下载对应系统的 Electron。GUI 行为仍取决于主机系统及其截图、辅助功能和权限设置。
+
+## 版本
+
+本文档对应 `0.1.1` 发布版本，可复现源码为本仓库的 `0.1.1` Git 标签。

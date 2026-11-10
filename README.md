@@ -1,25 +1,47 @@
-# Desktop plugin runtime
+# dsh-desktop-runtime
 
 English | [中文](README.zh.md)
 
-Runs separately installed floating ball, selection toolbar and capture plugins in one independent Electron helper connected to official DSH services. It does not replace the official application or modify its installation files. No desktop extension API is required.
+Repository name: `dsh-desktop-runtime`
 
-## Install and update
+Repository description: Independent native plugin runtime for the official DSH desktop application.
 
-Install this repository in DSH's plugin manager and enable it before installing its native feature plugins. Allow Electron's installation script if the package manager requests build approval. Electron is a separate runtime dependency; its first installation downloads the platform binary. Config `electronExecutable` can instead select a locally installed compatible Electron 44 executable.
+## Description
 
-Git commits do not refresh installed packages. To upgrade, use Add plugin with the new release tag or archive, then restart the Host if requested. Existing profile data remains in the same directory.
+`dsh-desktop-runtime` runs the floating ball, selection toolbar, and capture plugins in one independent Electron helper connected to official DSH services. It leaves the official application files unchanged and does not require the old Desktop extension API.
 
-## Behavior
+## Features
 
-The runtime starts only when a feature plugin activates. It owns authenticated RPC and stream requests, per-plugin activation acknowledgements, the helper process and tray menu. Each feature can be enabled, disabled or removed separately. Disabling the runtime stops all dependent native features and waits for window and recording cleanup before terminating Electron. No model request occurs on installation or startup.
+- Starts the helper only when a feature plugin activates.
+- Owns authenticated RPC and stream requests, activation acknowledgements, helper lifecycle, and the tray menu.
+- Lets each feature be enabled, disabled, or removed independently.
+- Waits for window and recording cleanup before stopping Electron.
+- Uses official sessions, model selection, and per-session permission presets.
+- Limits each unread pending response body to 8 MiB and cancels the related Host request when the limit is exceeded.
 
-## Configuration and limitations
+Installation and startup do not send a model request. The floating ball keeps its own conversation selection and does not follow the official main window's current conversation.
 
-`startTimeoutMs`, `operationTimeoutMs` and `stopTimeoutMs` configure startup, activation and shutdown deadlines. Native packages run with local application privileges. Official sessions, model selection and per-session permission presets are used. Custom-fork coordinate modes and background code-agent configuration are unavailable. The floating ball selects its own conversations and does not track the official main window's current conversation. Build and protocol checks do not establish GUI acceptance; exercise selection, capture and recording on each target OS.
+## Installation
 
-Each pending response permits at most 8 MiB of unread body data. A reader exceeding this limit receives an error and its Host request is cancelled. This bounds the response buffer rather than providing end-to-end flow control for the IPC channel.
+1. Use a DSH Desktop release that satisfies `>=0.2.2-rc.1 <0.3.0-0`.
+2. In the DSH plugin manager, choose **Add plugin**, enter `https://github.com/1997liuyh-boop/dsh-desktop-runtime.git`, and select the exact tag `0.1.1`.
+3. Enable `dsh-desktop-runtime`, then install the feature plugins at their `v0.2.1` tags.
+4. Allow the Electron install script if the package manager asks for build approval. Restart the Host when DSH requests it.
+
+The `electronExecutable` setting can select a locally installed compatible Electron 44 executable. Existing profile data stays in the same directory when the runtime is disabled or replaced. Git commits do not update an installed copy; install the exact release tag or archive to upgrade.
 
 ## Build
 
-Run `npm install` and `npm run build` with Node 24.9 or newer. Source is included. This repository is part of [1997liuyh-boop/deepseek-harness](https://github.com/1997liuyh-boop/deepseek-harness) and retains the DeepSeek MIT notice.
+Run `npm install` and `npm run build` with Node 24.9 or newer. The package includes the source and prebuilt `dist` entry. Build and protocol checks do not establish GUI acceptance; exercise selection, capture, and recording on each target OS.
+
+## Origin
+
+This repository is part of [1997liuyh-boop/deepseek-harness](https://github.com/1997liuyh-boop/deepseek-harness) and retains the DeepSeek MIT notice.
+
+## Limitations
+
+Native feature packages run with local application privileges. Custom-fork coordinate modes and background code-agent configuration are unavailable. Electron's first installation downloads a platform binary unless `electronExecutable` is configured. GUI behavior still depends on the host OS and its capture, accessibility, and permission settings.
+
+## Version
+
+This README documents release `0.1.1`. The reproducible source is the `0.1.1` Git tag in this repository.

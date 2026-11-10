@@ -2,18 +2,27 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/plugins/runtime/README.md
-/desktop-plugin-runtime:
-  en: ae9c3a7174f1d29f
-  zh: 6d1f8479c2d8eef6
-/desktop-plugin-runtime/install-and-update:
-  en: f22ef897c655c68d
-  zh: e8074ef99fa9e45b
-/desktop-plugin-runtime/behavior:
-  en: e3f5feb3f7412e30
-  zh: 055c46a6f90e4117
-/desktop-plugin-runtime/configuration-and-limitations:
-  en: 5778b633bee563d3
-  zh: 4dae40f05e8ddd93
-/desktop-plugin-runtime/build:
-  en: f90e2a7445347d8a
-  zh: b6a0df06a5a0fc8a
+/dsh-desktop-runtime:
+  en: e17f0761651d9984
+  zh: a96978fa6bd27497
+/dsh-desktop-runtime/description:
+  en: 79f76b8052612172
+  zh: 6c43ad966a808913
+/dsh-desktop-runtime/features:
+  en: a4499ed7a12e0d78
+  zh: 381725aa44fc2c75
+/dsh-desktop-runtime/installation:
+  en: be8ba3cb8371308f
+  zh: 45fc7d5ea410aea1
+/dsh-desktop-runtime/build:
+  en: b762eee4fd524ca5
+  zh: bcfb0a26582dfe07
+/dsh-desktop-runtime/origin:
+  en: 80582e4dbab0f088
+  zh: f9f33ad96c688f7b
+/dsh-desktop-runtime/limitations:
+  en: 8389ccaaf9a7d62f
+  zh: be115c851845ddc0
+/dsh-desktop-runtime/version:
+  en: dc12a6c879fe0a94
+  zh: eb9ab66908806f24
