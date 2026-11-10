@@ -1,0 +1,95 @@
+{
+  "name": "dsh-desktop-runtime",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "description": "Independent native plugin runtime for the official DSH desktop application",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=24.9.0",
+    "dsh": ">=0.2.2-rc.1 <0.3.0-0"
+  },
+  "files": [
+    "dist",
+    "assets",
+    "source",
+    "tsconfig.json",
+    "tsdown.config.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsdown --config-loader native",
+    "prepare": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/1997liuyh-boop/dsh-desktop-runtime.git"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml",
+      "platforms": [
+        "darwin",
+        "win32",
+        "linux"
+      ]
+    },
+    "compatibility": {
+      "dsh": "0.2.2-rc.1",
+      "dshReleases": {
+        "0.2.2-rc.1": "experimental"
+      }
+    }
+  },
+  "dependencies": {
+    "electron": "^44.7.0",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/schemastery": "*",
+    "@deepseek-ai/dsh-app-boot": "*",
+    "@deepseek-ai/dsh-client-connection": "*",
+    "@deepseek-ai/dsh-api-gateway": "*",
+    "@deepseek-ai/dsh-permission-presets": "*",
+    "@deepseek-ai/dsh-session": "*",
+    "@deepseek-ai/dsh-host-webserver": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-app-boot": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-connection": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-api-gateway": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-permission-presets": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-session": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-host-webserver": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "tsdown": "^0.22.2",
+    "typescript": "^6.0.3"
+  }
+}
