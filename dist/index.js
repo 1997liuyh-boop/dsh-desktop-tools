@@ -117,13 +117,6 @@ async function runCaptureOcr(ctx, png, long, signal) {
 		await rm(path, { force: true }).catch(() => {});
 	}
 }
-// \0@oxc-project+runtime@0.156.0/helpers/esm/decorate.js
-function __decorate(decorators, target, key, desc) {
-	var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
-	if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
-	else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
-	return c > 3 && r && Object.defineProperty(target, key, r), r;
-}
 // source/apps/desktop/native-extension-runtime/desktop-tools-service.ts
 const FEATURE_ORDER = [
 	"capture",
@@ -373,6 +366,49 @@ var DesktopToolsController = class {
 		});
 	}
 };
+/** 通过 Gateway 公开给设置客户端的方法。 */
+const REMOTE_METHODS = [
+	"snapshot",
+	"installVision",
+	"update",
+	"restart",
+	"openCapture",
+	"avatar",
+	"setAvatar",
+	"restoreAvatar",
+	"systemPermissions",
+	"openSystemPermission"
+];
+/**
+* 按 TC39 标准装饰器语义为实例方法应用 Remote 标记。
+* 打包器只会把装饰器语法降级为旧式 `(target, key, descriptor)` 调用，
+* 而 typert-protocol 的 Remote 只接受标准 `(method, context)` 形式，因此不使用装饰器语法。
+* @param instance 刚完成 super() 的服务实例。
+* @param names 需要公开的公共实例方法名。
+*/
+function markRemoteMethods(instance, names) {
+	const prototype = Object.getPrototypeOf(instance);
+	for (const name of names) {
+		const method = prototype[name];
+		if (typeof method !== "function") throw new TypeError(`桌面工具 Remote 方法不存在: ${name}`);
+		const initializers = [];
+		Remote(method, {
+			kind: "method",
+			name,
+			static: false,
+			private: false,
+			metadata: {},
+			access: {
+				has: (target) => name in target,
+				get: (target) => target[name]
+			},
+			addInitializer: (initializer) => {
+				initializers.push(initializer);
+			}
+		});
+		for (const initializer of initializers) initializer.call(instance);
+	}
+}
 /** 设置客户端使用的桌面工具 Remote 服务。 */
 var DesktopToolsService = class extends TypertRemoteService {
 	controller;
@@ -380,6 +416,7 @@ var DesktopToolsService = class extends TypertRemoteService {
 	constructor(ctx, controller) {
 		super(ctx, "desktopTools");
 		this.controller = controller;
+		markRemoteMethods(this, REMOTE_METHODS);
 	}
 	/** @returns 当前配置与实际运行状态。 */
 	snapshot() {
@@ -429,16 +466,6 @@ var DesktopToolsService = class extends TypertRemoteService {
 		return this.controller.openSystemPermission(right);
 	}
 };
-__decorate([Remote], DesktopToolsService.prototype, "snapshot", null);
-__decorate([Remote], DesktopToolsService.prototype, "installVision", null);
-__decorate([Remote], DesktopToolsService.prototype, "update", null);
-__decorate([Remote], DesktopToolsService.prototype, "restart", null);
-__decorate([Remote], DesktopToolsService.prototype, "openCapture", null);
-__decorate([Remote], DesktopToolsService.prototype, "avatar", null);
-__decorate([Remote], DesktopToolsService.prototype, "setAvatar", null);
-__decorate([Remote], DesktopToolsService.prototype, "restoreAvatar", null);
-__decorate([Remote], DesktopToolsService.prototype, "systemPermissions", null);
-__decorate([Remote], DesktopToolsService.prototype, "openSystemPermission", null);
 // source/apps/desktop/native-extension-runtime/host.ts
 const RPC_PATHS = new Set([
 	"workspace/create",

@@ -264,40 +264,66 @@ export class DesktopToolsController {
   }
 }
 
+/** 通过 Gateway 公开给设置客户端的方法。 */
+const REMOTE_METHODS = [
+  'snapshot', 'installVision', 'update', 'restart', 'openCapture',
+  'avatar', 'setAvatar', 'restoreAvatar', 'systemPermissions', 'openSystemPermission',
+] as const
+
+/**
+ * 按 TC39 标准装饰器语义为实例方法应用 Remote 标记。
+ * 打包器只会把装饰器语法降级为旧式 `(target, key, descriptor)` 调用，
+ * 而 typert-protocol 的 Remote 只接受标准 `(method, context)` 形式，因此不使用装饰器语法。
+ * @param instance 刚完成 super() 的服务实例。
+ * @param names 需要公开的公共实例方法名。
+ */
+function markRemoteMethods(instance: object, names: readonly string[]): void {
+  const prototype = Object.getPrototypeOf(instance) as Record<string, unknown>
+  for (const name of names) {
+    const method = prototype[name]
+    if (typeof method !== 'function') throw new TypeError(`桌面工具 Remote 方法不存在: ${name}`)
+    const initializers: ((this: object) => void)[] = []
+    const context = {
+      kind: 'method', name, static: false, private: false, metadata: {},
+      access: { has: (target: object) => name in target, get: (target: object) => (target as Record<string, unknown>)[name] },
+      addInitializer: (initializer: (this: object) => void) => { initializers.push(initializer) },
+    } as unknown as ClassMethodDecoratorContext<object, (this: object, ...args: unknown[]) => unknown>
+    ;(Remote as (method: (this: object, ...args: unknown[]) => unknown, context: ClassMethodDecoratorContext<object, (this: object, ...args: unknown[]) => unknown>) => void)(
+      method as (this: object, ...args: unknown[]) => unknown, context)
+    for (const initializer of initializers) initializer.call(instance)
+  }
+}
+
 /** 设置客户端使用的桌面工具 Remote 服务。 */
 export class DesktopToolsService extends TypertRemoteService {
   /** @param ctx Cordis Host。 @param controller 桌面工具控制器。 */
-  constructor(ctx: Context, private readonly controller: DesktopToolsController) { super(ctx, 'desktopTools') }
+  constructor(ctx: Context, private readonly controller: DesktopToolsController) {
+    super(ctx, 'desktopTools')
+    markRemoteMethods(this, REMOTE_METHODS)
+  }
 
   /** @returns 当前配置与实际运行状态。 */
-  @Remote
   snapshot(): Promise<DesktopToolsSnapshot> { return this.controller.refreshedSnapshot() }
 
   /** @returns 安装或启用前置插件 dsh-vision-router 的结果。 */
-  @Remote
   installVision(): Promise<{ readonly snapshot: DesktopToolsSnapshot; readonly restartRequired: boolean }> { return this.controller.installVision() }
 
   /** @param config 完整的新配置。 @returns 保存与应用结果。 */
-  @Remote
   update(config: DesktopToolsConfig): Promise<DesktopToolsUpdateResult> { return this.controller.update(config) }
 
   /** @returns 重新创建辅助进程后的状态。 */
-  @Remote
   restart(): Promise<DesktopToolsSnapshot> { return this.controller.restart() }
 
   /** @param mode 截图、录屏或长截图。 */
-  @Remote
   async openCapture(mode: 'image' | 'video' | 'long'): Promise<{ readonly opened: true }> {
     await this.controller.openCapture(mode)
     return { opened: true }
   }
 
   /** @returns 当前自定义头像的 data URL，未设置时省略。 */
-  @Remote
   avatar(): { readonly dataUrl?: string } { return this.controller.avatar() }
 
   /** @param bytes 图片内容。 @param fileName 用户选择的文件名。 */
-  @Remote
   setAvatar(dataUrl: string, fileName: string) {
     const match = /^data:image\/(?:gif|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/u.exec(dataUrl)
     if (match === null || dataUrl.length > 2_800_000) throw new Error('头像图片数据无效或超过 2 MB')
@@ -309,14 +335,11 @@ export class DesktopToolsService extends TypertRemoteService {
   }
 
   /** @returns 恢复头像后的持久化与 Helper 应用状态。 */
-  @Remote
   restoreAvatar() { return this.controller.restoreAvatar() }
 
   /** @returns 系统权限状态。 */
-  @Remote
   systemPermissions() { return this.controller.systemPermissions() }
 
   /** @param right 要打开的系统权限类别。 */
-  @Remote
   openSystemPermission(right: 'screen' | 'accessibility') { return this.controller.openSystemPermission(right) }
 }
