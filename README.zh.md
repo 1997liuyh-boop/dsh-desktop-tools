@@ -12,7 +12,7 @@
 https://github.com/1997liuyh-boop/dsh-desktop-tools.git
 ```
 
-选择精确标签 `0.4.4`。插件已经包含辅助进程、预加载脚本、原生功能模块、静态资源和设置页，不需要再安装 `dsh-desktop-runtime`、`dsh-selection-toolbar`、`dsh-floating-ball` 或 `dsh-capture`。
+选择精确标签 `0.4.5`。插件已经包含辅助进程、预加载脚本、原生功能模块、静态资源和设置页，不需要再安装 `dsh-desktop-runtime`、`dsh-selection-toolbar`、`dsh-floating-ball` 或 `dsh-capture`。
 
 安装不依赖 Electron 的 `path.txt`，也不使用 `koffi` 安装脚本。辅助进程使用 DSH Desktop 当前的 Electron 可执行文件，并加载对应平台的 Koffi 预编译包。
 
@@ -60,7 +60,7 @@ DSH 插件管理器不支持插件之间的自动联动安装，可以用以下�
 
 ## 替换旧插件
 
-如果 profile 中已经安装了旧插件，请先移除 `dsh-selection-toolbar`、`dsh-floating-ball`、`dsh-capture` 和 `dsh-desktop-runtime`，再安装 `dsh-desktop-tools@0.4.4` 并重启 Host。新插件将配置保存在 `desktop-tools.json`，不会导入旧插件各自的配置文件。默认启用划词工具栏和悬浮球，关闭截图和录屏。
+如果 profile 中已经安装了旧插件，请先移除 `dsh-selection-toolbar`、`dsh-floating-ball`、`dsh-capture` 和 `dsh-desktop-runtime`，再安装 `dsh-desktop-tools@0.4.5` 并重启 Host。新插件将配置保存在 `desktop-tools.json`，不会导入旧插件各自的配置文件。默认启用划词工具栏和悬浮球，关闭截图和录屏。
 
 ## 设置
 

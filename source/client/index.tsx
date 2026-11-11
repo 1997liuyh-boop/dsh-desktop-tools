@@ -32,7 +32,9 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
   interface TypertRemoteNamespaceMap { desktopTools: DesktopToolsRemote }
 }
 
-export const inject = ['slots', 'locale', 'remote', 'remote.desktopTools']
+// 只等待挂载前就存在的服务；remote.desktopTools 由下方 apply 中的 $mount 创建，
+// 若列入 inject 会形成自等待，插件永远停在 pending 并导致 web boot 失败（与官方 action-cards 一致）
+export const inject = ['slots', 'locale', 'remote']
 
 export async function apply(ctx: Context): Promise<() => Promise<void>> {
   const unmount = await ctx.remote.$mount(remote)

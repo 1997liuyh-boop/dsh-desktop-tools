@@ -543,6 +543,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     monospace;
     --color-red-50: oklch(97.1% 0.013 17.38);
     --color-red-200: oklch(88.5% 0.062 18.334);
+    --color-red-500: oklch(63.7% 0.237 25.331);
     --color-red-700: oklch(50.5% 0.213 27.518);
     --color-red-950: oklch(25.8% 0.092 26.042);
     --color-amber-50: oklch(98.7% 0.022 95.277);
@@ -561,6 +562,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     --color-slate-700: oklch(37.2% 0.044 257.287);
     --color-slate-800: oklch(27.9% 0.041 260.031);
     --color-slate-900: oklch(20.8% 0.042 265.755);
+    --color-black: #000;
     --color-white: #fff;
     --spacing: 0.25rem;
     --text-xs: 0.75rem;
@@ -577,6 +579,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     --font-weight-medium: 500;
     --font-weight-semibold: 600;
     --leading-snug: 1.375;
+    --radius-md: 0.375rem;
     --radius-lg: 0.5rem;
     --radius-xl: 0.75rem;
     --radius-2xl: 1rem;
@@ -696,6 +699,9 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   }
   .min-w-0 {
     min-width: 0px;
+  }
+  .flex-grow {
+    flex-grow: 1;
   }
   .grow {
     flex-grow: 1;
@@ -1357,7 +1363,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     }
   };
   const remote = createTypertRemoteInfo(spec, zod.z);
-  const inject = ["slots", "locale", "remote", "remote.desktopTools"];
+  const inject = ["slots", "locale", "remote"];
   async function apply(ctx) {
     const unmount = await ctx.remote.$mount(remote);
     const style = document.createElement("style");
