@@ -107,7 +107,14 @@ const { navigateSession: _navigateSession, ...standaloneFloating } = floating
 contextBridge.exposeInMainWorld('dshDesktop', {
   runtime: standalone ? 'standalone' : 'desktop',
   protocolVersion: 1,
-  capture: { result: (operation: string, input?: object) => ipcRenderer.invoke(DESKTOP_IPC.captureResult, operation, input) },
+  capture: {
+    result: (operation: string, input?: object) => ipcRenderer.invoke(DESKTOP_IPC.captureResult, operation, input),
+    onEvent: (listener: (event: unknown) => void) => {
+      const handle = (_event: Electron.IpcRendererEvent, payload: unknown): void => { listener(payload) }
+      ipcRenderer.on(DESKTOP_IPC.captureEvent, handle)
+      return () => { ipcRenderer.off(DESKTOP_IPC.captureEvent, handle) }
+    },
+  },
   locale: () => ipcRenderer.invoke(DESKTOP_IPC.floatingLocale),
   backend,
   floating: standalone ? standaloneFloating : floating,

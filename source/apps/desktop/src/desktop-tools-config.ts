@@ -3,10 +3,38 @@ import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'nod
 import { join } from 'node:path'
 import type {
   DesktopModelSelection,
+  DesktopRecordingFormat,
+  DesktopRecordingQuality,
   DesktopToolsConfig,
 } from './desktop-tools-types.ts'
 
-export type { DesktopCoordinateMode, DesktopModelSelection, DesktopPermissionPreset, DesktopToolsConfig } from './desktop-tools-types.ts'
+export type {
+  DesktopCoordinateMode, DesktopModelSelection, DesktopPermissionPreset, DesktopRecordingFormat, DesktopRecordingQuality, DesktopToolsConfig,
+} from './desktop-tools-types.ts'
+
+/** 截图默认全局快捷键。 */
+export const DEFAULT_SCREENSHOT_SHORTCUT = 'CommandOrControl+Shift+S'
+/** 录屏默认全局快捷键。 */
+export const DEFAULT_RECORDING_SHORTCUT = 'CommandOrControl+Shift+R'
+const RECORDING_FORMATS: readonly DesktopRecordingFormat[] = ['mp4', 'webm', 'gif']
+const RECORDING_QUALITIES: readonly DesktopRecordingQuality[] = ['sd', 'hd', 'original']
+const ACCELERATOR_KEY = /^(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Space|Tab|Backspace|Delete|Insert|Return|Enter|Up|Down|Left|Right|Home|End|PageUp|PageDown|Escape|Esc|PrintScreen|Plus|[-=[\];',./`\\])$/u
+const ACCELERATOR_MODIFIER = /^(?:Command|Cmd|Control|Ctrl|CommandOrControl|CmdOrCtrl|Alt|Option|AltGr|Shift|Super|Meta)$/u
+
+/**
+ * 校验 Electron 全局快捷键字符串。
+ * @param value 用户录制或配置文件中的快捷键。
+ * @returns 是否为「至少一个修饰键 + 一个主键」或空字符串（不注册）。
+ */
+export function isDesktopAccelerator(value: string): boolean {
+  if (value === '') return true
+  const parts = value.split('+')
+  const key = parts.pop()
+  if (key === undefined || !ACCELERATOR_KEY.test(key)) return false
+  // PrintScreen 允许单独使用；其余主键必须带修饰键，避免吞掉普通输入。
+  if (parts.length === 0) return key === 'PrintScreen'
+  return parts.every(part => ACCELERATOR_MODIFIER.test(part)) && new Set(parts).size === parts.length
+}
 
 export const DESKTOP_TOOLS_CONFIG_FILE = 'desktop-tools.json'
 
@@ -31,8 +59,11 @@ export function defaultDesktopToolsConfig(platform: NodeJS.Platform = process.pl
       permissionPreset: 'danger-full-access',
       coordinateMode: platform === 'win32' ? 'millifraction' : 'pixel',
     },
-    screenshot: { enabled: false },
-    recording: { enabled: false },
+    screenshot: { enabled: false, shortcut: DEFAULT_SCREENSHOT_SHORTCUT, longShortcut: '' },
+    recording: {
+      enabled: false, shortcut: DEFAULT_RECORDING_SHORTCUT, format: 'mp4', quality: 'hd',
+      systemAudio: platform !== 'linux', microphone: false, knowledgeGraph: false,
+    },
   }
 }
 
@@ -44,6 +75,25 @@ function booleanField(record: Record<string, unknown>, name: string): boolean {
   const value = record[name]
   if (typeof value !== 'boolean') throw new Error(`桌面工具配置字段必须为布尔值: ${name}`)
   return value
+}
+
+/** 新增字段缺省时回落默认值，兼容 0.3.x 写入的配置文件。 */
+function optionalBoolean(record: Record<string, unknown>, name: string, fallback: boolean): boolean {
+  return record[name] === undefined ? fallback : booleanField(record, name)
+}
+
+function shortcutField(record: Record<string, unknown>, name: string, fallback: string): string {
+  const value = record[name]
+  if (value === undefined) return fallback
+  if (typeof value !== 'string' || value.length > 80 || !isDesktopAccelerator(value)) throw new Error(`桌面工具快捷键无效: ${name}`)
+  return value
+}
+
+function choiceField<T extends string>(record: Record<string, unknown>, name: string, choices: readonly T[], fallback: T): T {
+  const value = record[name]
+  if (value === undefined) return fallback
+  if (typeof value !== 'string' || !(choices as readonly string[]).includes(value)) throw new Error(`桌面工具配置取值无效: ${name}`)
+  return value as T
 }
 
 function objectField(record: Record<string, unknown>, name: string): Record<string, unknown> {
@@ -95,8 +145,20 @@ export function parseDesktopToolsConfig(value: unknown): DesktopToolsConfig {
       permissionPreset,
       coordinateMode,
     },
-    screenshot: { enabled: booleanField(screenshot, 'enabled') },
-    recording: { enabled: booleanField(recording, 'enabled') },
+    screenshot: {
+      enabled: booleanField(screenshot, 'enabled'),
+      shortcut: shortcutField(screenshot, 'shortcut', DEFAULT_SCREENSHOT_SHORTCUT),
+      longShortcut: shortcutField(screenshot, 'longShortcut', ''),
+    },
+    recording: {
+      enabled: booleanField(recording, 'enabled'),
+      shortcut: shortcutField(recording, 'shortcut', DEFAULT_RECORDING_SHORTCUT),
+      format: choiceField(recording, 'format', RECORDING_FORMATS, 'mp4'),
+      quality: choiceField(recording, 'quality', RECORDING_QUALITIES, 'hd'),
+      systemAudio: optionalBoolean(recording, 'systemAudio', process.platform !== 'linux'),
+      microphone: optionalBoolean(recording, 'microphone', false),
+      knowledgeGraph: optionalBoolean(recording, 'knowledgeGraph', false),
+    },
   }
 }
 

@@ -7,12 +7,14 @@ import {
   readDesktopToolsConfig,
   writeDesktopToolsConfig,
 } from '../src/desktop-tools-config.ts'
+import { captureVisionStatus, installCaptureVision, type CaptureVisionContext } from './capture-vision.ts'
 import type {
   DesktopFeatureId,
   DesktopFeatureStatus,
   DesktopToolsConfig,
   DesktopToolsSnapshot,
   DesktopToolsUpdateResult,
+  DesktopVisionStatus,
 } from '../src/desktop-tools-types.ts'
 export type { DesktopFeatureStatus, DesktopToolsSnapshot, DesktopToolsUpdateResult } from '../src/desktop-tools-types.ts'
 
@@ -26,7 +28,7 @@ interface DesktopFeatureDescriptor {
 interface DesktopRuntime {
   activate(descriptor: DesktopFeatureDescriptor): Promise<() => Promise<void>>
   command(command: 'capture-open' | 'permissions-status' | 'permission-open' | 'avatar-refresh', input: {
-    readonly mode?: 'image' | 'video'
+    readonly mode?: 'image' | 'video' | 'long'
     readonly right?: 'screen' | 'accessibility'
   }): Promise<unknown>
   dispose(): Promise<void>
@@ -50,6 +52,7 @@ export class DesktopToolsController {
   private queue: Promise<void> = Promise.resolve()
   private runtimeError: string | undefined
   private closed = false
+  private vision: DesktopVisionStatus = { state: 'unknown' }
 
   /** @param options profile、包目录和辅助进程工厂。 */
   constructor(private readonly options: DesktopToolsControllerOptions) {
@@ -65,6 +68,7 @@ export class DesktopToolsController {
     return {
       config: parseDesktopToolsConfig(this.config),
       platform: process.platform,
+      vision: this.vision,
       runtime: this.runtime === undefined ? 'stopped' : this.runtimeError !== undefined || states.some(item => item.phase === 'error') ? 'degraded' : 'running',
       features,
     }
@@ -90,10 +94,23 @@ export class DesktopToolsController {
   /** @returns 重新创建辅助进程后的状态。 */
   restart(): Promise<DesktopToolsSnapshot> { return this.exclusive(() => this.reconcile()) }
 
-  /** @param mode 截图或录屏。 */
-  async openCapture(mode: 'image' | 'video'): Promise<void> {
-    const enabled = mode === 'image' ? this.config.screenshot.enabled : this.config.recording.enabled
-    if (!enabled) throw new Error(mode === 'image' ? '截图功能未启用' : '录屏功能未启用')
+  /** @returns 重新读取前置视觉插件状态后的快照。 */
+  async refreshedSnapshot(): Promise<DesktopToolsSnapshot> {
+    this.vision = await captureVisionStatus(this.options.ctx as unknown as CaptureVisionContext)
+    return this.snapshot()
+  }
+
+  /** @returns 安装或启用 dsh-vision-router 后的状态与是否需要重启。 */
+  async installVision(): Promise<{ readonly snapshot: DesktopToolsSnapshot; readonly restartRequired: boolean }> {
+    const result = await installCaptureVision(this.options.ctx as unknown as CaptureVisionContext)
+    this.vision = result.status
+    return { snapshot: this.snapshot(), restartRequired: result.restartRequired }
+  }
+
+  /** @param mode 截图、录屏或长截图。 */
+  async openCapture(mode: 'image' | 'video' | 'long'): Promise<void> {
+    const enabled = mode === 'video' ? this.config.recording.enabled : this.config.screenshot.enabled
+    if (!enabled) throw new Error(mode === 'video' ? '录屏功能未启用' : '截图功能未启用')
     if (this.statuses.get('capture')?.phase !== 'active' || this.runtime === undefined) throw new Error('截图录屏功能尚未就绪')
     await this.runtime.command('capture-open', { mode })
   }
@@ -254,7 +271,11 @@ export class DesktopToolsService extends TypertRemoteService {
 
   /** @returns 当前配置与实际运行状态。 */
   @Remote
-  snapshot(): DesktopToolsSnapshot { return this.controller.snapshot() }
+  snapshot(): Promise<DesktopToolsSnapshot> { return this.controller.refreshedSnapshot() }
+
+  /** @returns 安装或启用前置插件 dsh-vision-router 的结果。 */
+  @Remote
+  installVision(): Promise<{ readonly snapshot: DesktopToolsSnapshot; readonly restartRequired: boolean }> { return this.controller.installVision() }
 
   /** @param config 完整的新配置。 @returns 保存与应用结果。 */
   @Remote
@@ -264,9 +285,9 @@ export class DesktopToolsService extends TypertRemoteService {
   @Remote
   restart(): Promise<DesktopToolsSnapshot> { return this.controller.restart() }
 
-  /** @param mode 截图或录屏。 */
+  /** @param mode 截图、录屏或长截图。 */
   @Remote
-  async openCapture(mode: 'image' | 'video'): Promise<{ readonly opened: true }> {
+  async openCapture(mode: 'image' | 'video' | 'long'): Promise<{ readonly opened: true }> {
     await this.controller.openCapture(mode)
     return { opened: true }
   }

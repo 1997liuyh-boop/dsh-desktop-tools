@@ -103,10 +103,10 @@ async function main(): Promise<void> {
           }
           const input = message.input
           let value: unknown
-          if (message.command === 'capture-open' && 'mode' in input && (input.mode === 'image' || input.mode === 'video')) {
+          if (message.command === 'capture-open' && 'mode' in input && (input.mode === 'image' || input.mode === 'video' || input.mode === 'long')) {
             const capture = features.service('capture')
             if (capture === undefined) throw new Error('截图录屏功能尚未启用')
-            capture.open(input.mode)
+            void capture.open(input.mode).catch((error: unknown) => { console.error('截图录屏启动失败', error) })
           } else if (message.command === 'permissions-status') {
             value = features.service('orb')?.systemPermissions()
             if (value === undefined) throw new Error('悬浮球功能尚未启用')

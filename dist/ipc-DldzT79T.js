@@ -1,6 +1,8 @@
 // source/apps/desktop/src/ipc.ts
 const DESKTOP_IPC = {
 	captureResult: "dsh-desktop:capture-result",
+	/** 主进程推送给钉图与识别结果窗口的状态。 */
+	captureEvent: "dsh-desktop:capture-event",
 	fileSave: "dsh-desktop:file-save",
 	clipboardImageRead: "dsh-desktop:clipboard-image-read",
 	shortcutsInput: "dsh-desktop:shortcuts-input",

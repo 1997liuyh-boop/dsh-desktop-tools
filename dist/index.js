@@ -1,12 +1,122 @@
 import { i as installOrbAvatarFromBytes, l as readCustomOrbAvatarDataUrl, u as restoreOrbAvatar } from "./orb-avatar-DgC5zfjx.js";
-import { n as readDesktopToolsConfig, r as writeDesktopToolsConfig, t as parseDesktopToolsConfig } from "./desktop-tools-config-DevUlYAh.js";
+import { n as readDesktopToolsConfig, r as writeDesktopToolsConfig, t as parseDesktopToolsConfig } from "./desktop-tools-config-CoArygqo.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import z from "@deepseek-ai/schemastery";
 import { Remote, TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { SessionId } from "@deepseek-ai/dsh-session/types";
+// source/apps/desktop/native-extension-runtime/capture-vision.ts
+/** Host 侧对前置插件 dsh-vision-router 的检测、一键安装与 OCR 调用。 */
+/** 前置插件的 npm 包名。 */
+const VISION_ROUTER_PACKAGE = "dsh-vision-router";
+const MAX_OCR_BYTES = 3e7;
+function isRecord$1(value) {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+/**
+* 读取 vision-router 当前状态。
+* @param ctx Host 上下文。
+* @returns 可调用、未安装、未启用或视觉工具关闭。
+*/
+async function captureVisionStatus(ctx) {
+	if (ctx.get("tools")?.get("vision_ocr") !== void 0) return { state: "ready" };
+	const manager = ctx.get("pluginManager");
+	if (manager === void 0) return { state: "unknown" };
+	try {
+		const bundle = (await manager.listBundles()).find((item) => item.name === VISION_ROUTER_PACKAGE);
+		const version = bundle?.version === void 0 ? {} : { version: bundle.version };
+		if (bundle === void 0 || !bundle.installed) return { state: "missing" };
+		return {
+			state: bundle.enabled ? "tool-off" : "disabled",
+			...version
+		};
+	} catch {
+		return { state: "unknown" };
+	}
+}
+/**
+* 用户确认后安装并启用 vision-router。
+* @param ctx Host 上下文。
+* @returns 是否需要重启 DSH 才能生效。
+*/
+async function installCaptureVision(ctx) {
+	const manager = ctx.get("pluginManager");
+	if (manager === void 0) throw new Error(`当前 DSH 未提供插件管理器，请在终端运行 dsh plugin add ${VISION_ROUTER_PACKAGE}`);
+	const before = await captureVisionStatus(ctx);
+	const result = before.state === "disabled" ? await manager.setBundleEnabled(VISION_ROUTER_PACKAGE, true) : before.state === "missing" || before.state === "unknown" ? await manager.installBundle(VISION_ROUTER_PACKAGE) : void 0;
+	if (result !== void 0 && (result.application === "failed" || result.application === "cancelled")) throw new Error(`安装 ${VISION_ROUTER_PACKAGE} 未完成（${result.application}），请在 DSH 插件管理中查看原因`);
+	const status = await captureVisionStatus(ctx);
+	return {
+		status,
+		restartRequired: status.state !== "ready"
+	};
+}
+/** 从工具结果中取出 vision-router 的 JSON 文本。 */
+function ocrPayload(result) {
+	if (!isRecord$1(result)) throw new Error("OCR 工具没有返回结果");
+	if (result.isError === true) {
+		const error = isRecord$1(result.error) && typeof result.error.message === "string" ? result.error.message : "OCR 工具执行失败";
+		throw new Error(error);
+	}
+	const candidates = [result.value];
+	if (Array.isArray(result.content)) candidates.push(result.content.map((block) => isRecord$1(block) && typeof block.text === "string" ? block.text : "").join(""));
+	for (const candidate of candidates) {
+		if (isRecord$1(candidate)) return candidate;
+		if (typeof candidate === "string" && candidate.trim() !== "") try {
+			const parsed = JSON.parse(candidate);
+			if (isRecord$1(parsed)) return parsed;
+		} catch {
+			return {
+				text: candidate,
+				engine: "unknown"
+			};
+		}
+	}
+	throw new Error("OCR 工具返回了无法识别的结果");
+}
+/**
+* 调用 vision-router 识别 PNG 中的文字；临时文件写在 profile 内并在结束后删除。
+* @param ctx Host 上下文。
+* @param png 图片字节。
+* @param long 是否为长截图（使用分片识别）。
+* @param signal 取消信号。
+* @returns 识别文本。
+*/
+async function runCaptureOcr(ctx, png, long, signal) {
+	if (png.byteLength === 0 || png.byteLength > MAX_OCR_BYTES) throw new Error("待识别图片为空或超过 30 MB");
+	const tools = ctx.get("tools");
+	const name = long ? "vision_long_screenshot_ocr" : "vision_ocr";
+	if (tools?.get(name) === void 0) throw new Error(`需要启用 ${VISION_ROUTER_PACKAGE} 并打开其视觉工具`);
+	const directory = join(ctx.profileContext.dir, "desktop-tools", "ocr");
+	await mkdir(directory, { recursive: true });
+	const path = join(directory, `capture-${randomUUID()}.png`);
+	try {
+		await writeFile(path, png, { flag: "wx" });
+		const payload = ocrPayload((await tools.execute({
+			calls: [{
+				type: "tool-call",
+				id: randomUUID(),
+				name,
+				arguments: JSON.stringify({
+					image: path,
+					engine: "auto"
+				})
+			}],
+			signal
+		})).results[0]?.result);
+		if (payload.ok === false) throw new Error(typeof payload.message === "string" ? payload.message : typeof payload.code === "string" ? payload.code : "OCR 识别失败");
+		return {
+			text: (typeof payload.text === "string" ? payload.text : typeof payload.markdown === "string" ? payload.markdown : "").trim(),
+			engine: typeof payload.engine === "string" ? payload.engine : "unknown",
+			uncertain: payload.uncertain === true
+		};
+	} finally {
+		await rm(path, { force: true }).catch(() => {});
+	}
+}
 // \0@oxc-project+runtime@0.156.0/helpers/esm/decorate.js
 function __decorate(decorators, target, key, desc) {
 	var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
@@ -30,6 +140,7 @@ var DesktopToolsController = class {
 	queue = Promise.resolve();
 	runtimeError;
 	closed = false;
+	vision = { state: "unknown" };
 	/** @param options profile、包目录和辅助进程工厂。 */
 	constructor(options) {
 		this.options = options;
@@ -43,6 +154,7 @@ var DesktopToolsController = class {
 		return {
 			config: parseDesktopToolsConfig(this.config),
 			platform: process.platform,
+			vision: this.vision,
 			runtime: this.runtime === void 0 ? "stopped" : this.runtimeError !== void 0 || states.some((item) => item.phase === "error") ? "degraded" : "running",
 			features
 		};
@@ -76,9 +188,23 @@ var DesktopToolsController = class {
 	restart() {
 		return this.exclusive(() => this.reconcile());
 	}
-	/** @param mode 截图或录屏。 */
+	/** @returns 重新读取前置视觉插件状态后的快照。 */
+	async refreshedSnapshot() {
+		this.vision = await captureVisionStatus(this.options.ctx);
+		return this.snapshot();
+	}
+	/** @returns 安装或启用 dsh-vision-router 后的状态与是否需要重启。 */
+	async installVision() {
+		const result = await installCaptureVision(this.options.ctx);
+		this.vision = result.status;
+		return {
+			snapshot: this.snapshot(),
+			restartRequired: result.restartRequired
+		};
+	}
+	/** @param mode 截图、录屏或长截图。 */
 	async openCapture(mode) {
-		if (!(mode === "image" ? this.config.screenshot.enabled : this.config.recording.enabled)) throw new Error(mode === "image" ? "截图功能未启用" : "录屏功能未启用");
+		if (!(mode === "video" ? this.config.recording.enabled : this.config.screenshot.enabled)) throw new Error(mode === "video" ? "录屏功能未启用" : "截图功能未启用");
 		if (this.statuses.get("capture")?.phase !== "active" || this.runtime === void 0) throw new Error("截图录屏功能尚未就绪");
 		await this.runtime.command("capture-open", { mode });
 	}
@@ -257,7 +383,11 @@ var DesktopToolsService = class extends TypertRemoteService {
 	}
 	/** @returns 当前配置与实际运行状态。 */
 	snapshot() {
-		return this.controller.snapshot();
+		return this.controller.refreshedSnapshot();
+	}
+	/** @returns 安装或启用前置插件 dsh-vision-router 的结果。 */
+	installVision() {
+		return this.controller.installVision();
 	}
 	/** @param config 完整的新配置。 @returns 保存与应用结果。 */
 	update(config) {
@@ -267,7 +397,7 @@ var DesktopToolsService = class extends TypertRemoteService {
 	restart() {
 		return this.controller.restart();
 	}
-	/** @param mode 截图或录屏。 */
+	/** @param mode 截图、录屏或长截图。 */
 	async openCapture(mode) {
 		await this.controller.openCapture(mode);
 		return { opened: true };
@@ -300,6 +430,7 @@ var DesktopToolsService = class extends TypertRemoteService {
 	}
 };
 __decorate([Remote], DesktopToolsService.prototype, "snapshot", null);
+__decorate([Remote], DesktopToolsService.prototype, "installVision", null);
 __decorate([Remote], DesktopToolsService.prototype, "update", null);
 __decorate([Remote], DesktopToolsService.prototype, "restart", null);
 __decorate([Remote], DesktopToolsService.prototype, "openCapture", null);
@@ -337,8 +468,34 @@ async function* emptyUplink() {}
 function requestFailure(code, message) {
 	throw new NativeRequestError(code, message);
 }
+/** 截图识别图片的 base64 上限，约对应 30 MB PNG。 */
+const MAX_OCR_BASE64 = 4e7;
+async function applyCommand(ctx, body, signal) {
+	if (!isRecord(body) || typeof body.command !== "string") requestFailure("native/command-invalid", "原生命令格式无效。");
+	switch (body.command) {
+		case "permission": return applyPermission(ctx, body);
+		case "vision-status": return Response.json({
+			ok: true,
+			value: await captureVisionStatus(ctx)
+		});
+		case "vision-install": return Response.json({
+			ok: true,
+			value: await installCaptureVision(ctx)
+		});
+		case "vision-ocr": {
+			const payload = isRecord(body.payload) ? body.payload : {};
+			if (typeof payload.data !== "string" || payload.data.length > MAX_OCR_BASE64 || !/^[A-Za-z0-9+/]*={0,2}$/u.test(payload.data)) requestFailure("native/ocr-invalid", "待识别图片格式无效或过大。");
+			const png = Buffer.from(payload.data, "base64");
+			return Response.json({
+				ok: true,
+				value: await runCaptureOcr(ctx, png, payload.long === true, signal)
+			});
+		}
+		default: requestFailure("native/command-invalid", "原生命令不受支持。");
+	}
+}
 async function applyPermission(ctx, body) {
-	if (!isRecord(body) || body.command !== "permission" || !isRecord(body.payload)) requestFailure("native/command-invalid", "原生权限命令格式无效。");
+	if (!isRecord(body.payload)) requestFailure("native/command-invalid", "原生权限命令格式无效。");
 	const { preset, sessionId } = body.payload;
 	if (preset !== "read-only" && preset !== "workspace-write" && preset !== "danger-full-access" || typeof sessionId !== "string" || sessionId === "") requestFailure("native/permission-invalid", "请选择有效权限和已创建的悬浮球会话。");
 	const presets = ctx.get("permissionPresets");
@@ -409,7 +566,7 @@ function createNativeHostBridge(ctx, send) {
 					type: "dsh-native-end",
 					id
 				});
-			} else if (path === "/.dsh/native-command") await respond(id, await applyPermission(ctx, JSON.parse(body)), signal);
+			} else if (path === "/.dsh/native-command") await respond(id, await applyCommand(ctx, JSON.parse(body), signal), signal);
 			else if (RPC_PATHS.has(path)) await respond(id, await rpc.fetch(new Request(`http://dsh-native.local${path}`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },

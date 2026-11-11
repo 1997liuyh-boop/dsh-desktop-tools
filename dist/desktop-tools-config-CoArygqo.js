@@ -2,6 +2,35 @@ import { join } from "node:path";
 import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 // source/apps/desktop/src/desktop-tools-config.ts
 /** 桌面工具统一配置及原子持久化。 */
+/** 截图默认全局快捷键。 */
+const DEFAULT_SCREENSHOT_SHORTCUT = "CommandOrControl+Shift+S";
+/** 录屏默认全局快捷键。 */
+const DEFAULT_RECORDING_SHORTCUT = "CommandOrControl+Shift+R";
+const RECORDING_FORMATS = [
+	"mp4",
+	"webm",
+	"gif"
+];
+const RECORDING_QUALITIES = [
+	"sd",
+	"hd",
+	"original"
+];
+const ACCELERATOR_KEY = /^(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Space|Tab|Backspace|Delete|Insert|Return|Enter|Up|Down|Left|Right|Home|End|PageUp|PageDown|Escape|Esc|PrintScreen|Plus|[-=[\];',./`\\])$/u;
+const ACCELERATOR_MODIFIER = /^(?:Command|Cmd|Control|Ctrl|CommandOrControl|CmdOrCtrl|Alt|Option|AltGr|Shift|Super|Meta)$/u;
+/**
+* 校验 Electron 全局快捷键字符串。
+* @param value 用户录制或配置文件中的快捷键。
+* @returns 是否为「至少一个修饰键 + 一个主键」或空字符串（不注册）。
+*/
+function isDesktopAccelerator(value) {
+	if (value === "") return true;
+	const parts = value.split("+");
+	const key = parts.pop();
+	if (key === void 0 || !ACCELERATOR_KEY.test(key)) return false;
+	if (parts.length === 0) return key === "PrintScreen";
+	return parts.every((part) => ACCELERATOR_MODIFIER.test(part)) && new Set(parts).size === parts.length;
+}
 const DESKTOP_TOOLS_CONFIG_FILE = "desktop-tools.json";
 const DEFAULT_MODEL = {
 	provider: "deepseek-official",
@@ -23,8 +52,20 @@ function defaultDesktopToolsConfig(platform = process.platform) {
 			permissionPreset: "danger-full-access",
 			coordinateMode: platform === "win32" ? "millifraction" : "pixel"
 		},
-		screenshot: { enabled: false },
-		recording: { enabled: false }
+		screenshot: {
+			enabled: false,
+			shortcut: DEFAULT_SCREENSHOT_SHORTCUT,
+			longShortcut: ""
+		},
+		recording: {
+			enabled: false,
+			shortcut: DEFAULT_RECORDING_SHORTCUT,
+			format: "mp4",
+			quality: "hd",
+			systemAudio: platform !== "linux",
+			microphone: false,
+			knowledgeGraph: false
+		}
 	};
 }
 function isRecord(value) {
@@ -33,6 +74,22 @@ function isRecord(value) {
 function booleanField(record, name) {
 	const value = record[name];
 	if (typeof value !== "boolean") throw new Error(`桌面工具配置字段必须为布尔值: ${name}`);
+	return value;
+}
+/** 新增字段缺省时回落默认值，兼容 0.3.x 写入的配置文件。 */
+function optionalBoolean(record, name, fallback) {
+	return record[name] === void 0 ? fallback : booleanField(record, name);
+}
+function shortcutField(record, name, fallback) {
+	const value = record[name];
+	if (value === void 0) return fallback;
+	if (typeof value !== "string" || value.length > 80 || !isDesktopAccelerator(value)) throw new Error(`桌面工具快捷键无效: ${name}`);
+	return value;
+}
+function choiceField(record, name, choices, fallback) {
+	const value = record[name];
+	if (value === void 0) return fallback;
+	if (typeof value !== "string" || !choices.includes(value)) throw new Error(`桌面工具配置取值无效: ${name}`);
 	return value;
 }
 function objectField(record, name) {
@@ -75,8 +132,20 @@ function parseDesktopToolsConfig(value) {
 			permissionPreset,
 			coordinateMode
 		},
-		screenshot: { enabled: booleanField(screenshot, "enabled") },
-		recording: { enabled: booleanField(recording, "enabled") }
+		screenshot: {
+			enabled: booleanField(screenshot, "enabled"),
+			shortcut: shortcutField(screenshot, "shortcut", DEFAULT_SCREENSHOT_SHORTCUT),
+			longShortcut: shortcutField(screenshot, "longShortcut", "")
+		},
+		recording: {
+			enabled: booleanField(recording, "enabled"),
+			shortcut: shortcutField(recording, "shortcut", DEFAULT_RECORDING_SHORTCUT),
+			format: choiceField(recording, "format", RECORDING_FORMATS, "mp4"),
+			quality: choiceField(recording, "quality", RECORDING_QUALITIES, "hd"),
+			systemAudio: optionalBoolean(recording, "systemAudio", process.platform !== "linux"),
+			microphone: optionalBoolean(recording, "microphone", false),
+			knowledgeGraph: optionalBoolean(recording, "knowledgeGraph", false)
+		}
 	};
 }
 /** @param profileDir 当前 DSH profile。 @returns 磁盘配置；文件不存在时返回首次安装默认值。 */

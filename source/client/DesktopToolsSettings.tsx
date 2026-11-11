@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
 import type { DesktopModelSelection, DesktopToolsConfig, DesktopToolsSnapshot, DesktopToolsUpdateResult } from '../apps/desktop/src/desktop-tools-types.ts'
 import type { en } from './locales.ts'
-import type { ShortcutBinding, ShortcutCommandId } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 
 type Copy = (key: keyof typeof en) => string
@@ -17,8 +16,43 @@ export interface DesktopToolsSettingsServices {
   restoreAvatar(): Promise<RemoteResult<{ readonly saved: boolean; readonly applied: boolean }>>
   systemPermissions(): Promise<RemoteResult<{ readonly screen?: boolean; readonly accessibility?: boolean }>>
   openSystemPermission(right: 'screen' | 'accessibility'): Promise<RemoteResult<unknown>>
-  editShortcut(id: ShortcutCommandId, binding: ShortcutBinding): Promise<string | undefined>
-  shortcutLabel(id: ShortcutCommandId): string
+  /** 安装或启用前置插件 dsh-vision-router。 */
+  installVision(): Promise<RemoteResult<{ readonly snapshot: DesktopToolsSnapshot; readonly restartRequired: boolean }>>
+  /** 立即打开截图、录屏或长截图。 */
+  openCapture(mode: 'image' | 'video' | 'long'): Promise<RemoteResult<{ readonly opened: true }>>
+}
+
+/** 可录制的全局快捷键字段。 */
+type ShortcutField = 'screenshot.shortcut' | 'screenshot.longShortcut' | 'recording.shortcut'
+
+const KEY_NAMES: Readonly<Record<string, string>> = {
+  Space: 'Space', Enter: 'Return', Tab: 'Tab', Backspace: 'Backspace', Delete: 'Delete', Insert: 'Insert', Home: 'Home', End: 'End',
+  PageUp: 'PageUp', PageDown: 'PageDown', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', PrintScreen: 'PrintScreen',
+  Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/', Backquote: '`', Backslash: '\\',
+}
+
+/**
+ * 把键盘事件转换为 Electron 全局快捷键字符串。
+ * @param event 用户按下的组合键。
+ * @returns 合法的 Accelerator；缺少修饰键或主键不受支持时为 undefined。
+ */
+function acceleratorOf(event: KeyboardEvent): string | undefined {
+  const code = event.code
+  const key = /^Key[A-Z]$/u.test(code) ? code.slice(3) : /^Digit\d$/u.test(code) ? code.slice(5) : /^F([1-9]|1\d|2[0-4])$/u.test(code) ? code : KEY_NAMES[code]
+  if (key === undefined) return undefined
+  const modifiers: string[] = []
+  if (event.ctrlKey || event.metaKey) modifiers.push('CommandOrControl')
+  if (event.altKey) modifiers.push('Alt')
+  if (event.shiftKey) modifiers.push('Shift')
+  if (modifiers.length === 0 && key !== 'PrintScreen') return undefined
+  return [...modifiers, key].join('+')
+}
+
+/** @param value Accelerator。 @param platform 当前平台。 @returns 便于阅读的按键文本。 */
+function acceleratorLabel(value: string, platform: string | undefined): string {
+  if (value === '') return '—'
+  const mac = platform === 'darwin'
+  return value.split('+').map(part => part === 'CommandOrControl' ? (mac ? '⌘' : 'Ctrl') : mac && part === 'Alt' ? '⌥' : mac && part === 'Shift' ? '⇧' : part).join(' + ')
 }
 
 interface DesktopToolsSettingsInjected { readonly services: DesktopToolsSettingsServices }
@@ -72,8 +106,8 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
   const [busy, setBusy] = useState(false)
   const [pending, setPending] = useState(false)
   const [message, setMessage] = useState('')
-  const [capturing, setCapturing] = useState<'screenshot' | 'recording'>()
-  const [shortcutRevision, setShortcutRevision] = useState(0)
+  const [capturing, setCapturing] = useState<ShortcutField>()
+  const [installing, setInstalling] = useState(false)
 
   const load = async (): Promise<void> => {
     const result = await services.snapshot()
@@ -116,31 +150,46 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
     if (draft === undefined) return
     if (feature === 'selection') setDraft({ ...draft, selection: { ...draft.selection, enabled } })
     else if (feature === 'floating') setDraft({ ...draft, floatingBall: { ...draft.floatingBall, enabled } })
-    else if (feature === 'screenshot') setDraft({ ...draft, screenshot: { enabled } })
-    else setDraft({ ...draft, recording: { enabled } })
+    else if (feature === 'screenshot') setDraft({ ...draft, screenshot: { ...draft.screenshot, enabled } })
+    else setDraft({ ...draft, recording: { ...draft.recording, enabled } })
   }
 
   const active = snapshot?.features[tab === 'floating' ? 'floatingBall' : tab === 'selection' ? 'selection' : 'capture']
   const enabled = draft === undefined ? false : tab === 'selection' ? draft.selection.enabled
     : tab === 'floating' ? draft.floatingBall.enabled : tab === 'screenshot' ? draft.screenshot.enabled : draft.recording.enabled
-  const captureShortcut = async (event: KeyboardEvent): Promise<void> => {
+  const setShortcut = (field: ShortcutField, value: string): void => {
+    if (draft === undefined) return
+    if (field === 'screenshot.shortcut') setDraft({ ...draft, screenshot: { ...draft.screenshot, shortcut: value } })
+    else if (field === 'screenshot.longShortcut') setDraft({ ...draft, screenshot: { ...draft.screenshot, longShortcut: value } })
+    else setDraft({ ...draft, recording: { ...draft.recording, shortcut: value } })
+  }
+  const shortcutValue = (field: ShortcutField): string => draft === undefined ? '' : field === 'screenshot.shortcut' ? draft.screenshot.shortcut
+    : field === 'screenshot.longShortcut' ? draft.screenshot.longShortcut : draft.recording.shortcut
+  const captureShortcut = (event: KeyboardEvent): void => {
     if (event.key === 'Escape') { event.preventDefault(); setCapturing(undefined); return }
     if (/^(Control|Alt|Shift|Meta)$/u.test(event.key)) return
     event.preventDefault()
-    const id = capturing === 'screenshot' ? 'desktop-tools.screenshot' : 'desktop-tools.recording'
-    const modifiers: ShortcutBinding['modifiers'][number][] = []
-    if (event.ctrlKey || event.metaKey) modifiers.push('primary')
-    if (event.altKey) modifiers.push('alt')
-    if (event.shiftKey) modifiers.push('shift')
-    const error = await services.editShortcut(id as ShortcutCommandId, { code: event.code, modifiers })
-    setMessage(error ?? '')
-    if (error === undefined) setShortcutRevision(value => value + 1)
+    const accelerator = acceleratorOf(event)
+    if (accelerator === undefined || capturing === undefined) { setMessage(t('shortcutInvalid')); return }
+    setShortcut(capturing, accelerator)
+    setMessage('')
     setCapturing(undefined)
+  }
+
+  const installVision = async (): Promise<void> => {
+    if (installing) return
+    setInstalling(true)
+    setMessage(t('visionInstalling'))
+    const result = await services.installVision()
+    setInstalling(false)
+    if (!result.ok) { setMessage(t('visionInstallFailed')); return }
+    setSnapshot(result.value.snapshot)
+    setMessage(result.value.restartRequired ? t('visionRestart') : t('visionReady'))
   }
 
   useEffect(() => {
     if (capturing === undefined) return
-    const listener = (event: KeyboardEvent): void => { void captureShortcut(event) }
+    const listener = (event: KeyboardEvent): void => { captureShortcut(event) }
     document.addEventListener('keydown', listener, true)
     return () => document.removeEventListener('keydown', listener, true)
   }, [capturing])
@@ -224,7 +273,40 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
           {(['screen', 'accessibility'] as const).map(right => <div key={right} className="flex flex-wrap items-center justify-between gap-2 text-sm"><span>{t(right === 'screen' ? 'screenPermission' : 'accessibilityPermission')}</span><span>{permissions?.[right] === true ? t('permissionGranted') : permissions?.[right] === false ? t('permissionDenied') : t('permissionUnknown')}</span><button type="button" className="text-[var(--dsw-alias-brand-primary)]" onClick={() => { void services.openSystemPermission(right).then(() => { void checkPermissions() }) }}>{t('openSettings')}</button></div>)}
         </div>
       </>}
-      {(tab === 'screenshot' || tab === 'recording') && <div className="grid gap-2"><span className="text-sm text-[var(--dsw-alias-label-tertiary)]">{t('shortcut')}</span><div className="flex flex-wrap items-center gap-2"><kbd key={shortcutRevision} className="rounded border border-[var(--dsw-alias-border-l2)] px-2 py-1 text-sm">{services.shortcutLabel(tab === 'screenshot' ? 'desktop-tools.screenshot' as ShortcutCommandId : 'desktop-tools.recording' as ShortcutCommandId)}</kbd><button type="button" className="rounded border border-[var(--dsw-alias-border-l2)] px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--dsw-alias-brand-primary)]" onClick={() => setCapturing(tab)}>{capturing === tab ? t('recordingShortcut') : t('recordShortcut')}</button></div></div>}
+      {(tab === 'screenshot' || tab === 'recording') && <div className="grid gap-3">
+        {(tab === 'screenshot' ? ['screenshot.shortcut', 'screenshot.longShortcut'] as const : ['recording.shortcut'] as const).map(field => <div key={field} className="grid gap-1">
+          <span className="text-sm text-[var(--dsw-alias-label-tertiary)]">{t(field === 'screenshot.longShortcut' ? 'longShortcut' : 'shortcut')}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <kbd className="rounded border border-[var(--dsw-alias-border-l2)] px-2 py-1 text-sm">{acceleratorLabel(shortcutValue(field), snapshot?.platform)}</kbd>
+            <button type="button" className="rounded border border-[var(--dsw-alias-border-l2)] px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--dsw-alias-brand-primary)]" onClick={() => setCapturing(field)}>{capturing === field ? t('recordingShortcut') : t('recordShortcut')}</button>
+            {shortcutValue(field) !== '' && <button type="button" className="px-2 py-2 text-sm text-[var(--dsw-alias-label-tertiary)] hover:text-[var(--dsw-alias-label-primary)]" onClick={() => setShortcut(field, '')}>{t('clearShortcut')}</button>}
+            <button type="button" className="px-2 py-2 text-sm text-[var(--dsw-alias-brand-primary)] disabled:opacity-50" disabled={active?.phase !== 'active'} onClick={() => { void services.openCapture(field === 'recording.shortcut' ? 'video' : field === 'screenshot.longShortcut' ? 'long' : 'image') }}>{t('tryNow')}</button>
+          </div>
+        </div>)}
+        <p className="text-xs text-[var(--dsw-alias-label-tertiary)]">{t('globalShortcutHint')}</p>
+      </div>}
+      {tab === 'screenshot' && <div className="grid gap-2 rounded border border-[var(--dsw-alias-border-l2)] p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-medium">{t('visionTitle')}</h3>
+          <span className={snapshot?.vision.state === 'ready' ? 'text-xs text-[var(--dsw-alias-state-success-primary)]' : 'text-xs text-[var(--dsw-alias-label-tertiary)]'}>{t(snapshot?.vision.state === 'ready' ? 'visionStateReady' : snapshot?.vision.state === 'missing' ? 'visionStateMissing' : snapshot?.vision.state === 'disabled' ? 'visionStateDisabled' : snapshot?.vision.state === 'tool-off' ? 'visionStateToolOff' : 'visionStateUnknown')}</span>
+        </div>
+        <p className="text-sm text-[var(--dsw-alias-label-tertiary)]">{t('visionDescription')}</p>
+        {snapshot?.vision.state !== 'ready' && snapshot?.vision.state !== 'tool-off' && <div className="flex flex-wrap items-center gap-2">
+          <button type="button" disabled={installing} className="rounded bg-[var(--dsw-alias-brand-primary)] px-3 py-2 text-sm text-white disabled:opacity-50" onClick={() => { void installVision() }}>{installing ? t('visionInstalling') : snapshot?.vision.state === 'disabled' ? t('visionEnable') : t('visionInstall')}</button>
+          <code className="text-xs text-[var(--dsw-alias-label-tertiary)]">dsh plugin add dsh-vision-router</code>
+        </div>}
+      </div>}
+      {tab === 'recording' && <div className="grid gap-3">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="grid gap-1 text-sm"><span>{t('recordingFormat')}</span><select className="rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)] px-3 py-2" value={draft.recording.format} onChange={event => setDraft({ ...draft, recording: { ...draft.recording, format: event.currentTarget.value as DesktopToolsConfig['recording']['format'] } })}><option value="mp4">MP4</option><option value="gif">GIF</option><option value="webm">WebM</option></select></label>
+          <label className="grid gap-1 text-sm"><span>{t('recordingQuality')}</span><select className="rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)] px-3 py-2" value={draft.recording.quality} onChange={event => setDraft({ ...draft, recording: { ...draft.recording, quality: event.currentTarget.value as DesktopToolsConfig['recording']['quality'] } })}><option value="sd">{t('qualitySd')}</option><option value="hd">{t('qualityHd')}</option><option value="original">{t('qualityOriginal')}</option></select></label>
+        </div>
+        {(['systemAudio', 'microphone', 'knowledgeGraph'] as const).map(field => <label key={field} className="flex min-h-10 items-center gap-2 text-sm">
+          <input type="checkbox" checked={draft.recording[field]} disabled={field === 'systemAudio' && snapshot?.platform === 'linux'} onChange={event => setDraft({ ...draft, recording: { ...draft.recording, [field]: event.currentTarget.checked } })} />
+          {t(field === 'systemAudio' ? 'recordingSystemAudio' : field === 'microphone' ? 'recordingMicrophone' : 'recordingGraph')}
+        </label>)}
+        <p className="text-xs text-[var(--dsw-alias-label-tertiary)]">{t('recordingGraphHint')}</p>
+      </div>}
     </div>
     {message && <p role="status" className={message === t('saved') ? 'text-sm text-[var(--dsw-alias-state-success-primary)]' : 'text-sm text-[var(--dsw-alias-state-error-primary)]'}>{message}</p>}
     <footer className="flex flex-wrap justify-end gap-2 border-t border-[var(--dsw-alias-border-l2)] pt-3"><button type="button" disabled={busy} className="rounded border border-[var(--dsw-alias-border-l2)] px-3 py-2 text-sm disabled:opacity-50" onClick={() => { void load() }}>{t('check')}</button>{pending && <button type="button" disabled={busy} className="rounded border border-[var(--dsw-alias-border-l2)] px-3 py-2 text-sm disabled:opacity-50" onClick={() => { void retry() }}>{t('retry')}</button>}<button type="button" disabled={busy} className="rounded bg-[var(--dsw-alias-brand-primary)] px-3 py-2 text-sm text-white disabled:opacity-50" onClick={() => { void save() }}>{busy ? t('saving') : t('save')}</button></footer>

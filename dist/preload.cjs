@@ -2,6 +2,8 @@ let electron = require("electron");
 // source/apps/desktop/src/ipc.ts
 const DESKTOP_IPC = {
 	captureResult: "dsh-desktop:capture-result",
+	/** 主进程推送给钉图与识别结果窗口的状态。 */
+	captureEvent: "dsh-desktop:capture-event",
 	fileSave: "dsh-desktop:file-save",
 	clipboardImageRead: "dsh-desktop:clipboard-image-read",
 	shortcutsInput: "dsh-desktop:shortcuts-input",
@@ -230,7 +232,18 @@ const { navigateSession: _navigateSession, ...standaloneFloating } = floating;
 electron.contextBridge.exposeInMainWorld("dshDesktop", {
 	runtime: "standalone",
 	protocolVersion: 1,
-	capture: { result: (operation, input) => electron.ipcRenderer.invoke(DESKTOP_IPC.captureResult, operation, input) },
+	capture: {
+		result: (operation, input) => electron.ipcRenderer.invoke(DESKTOP_IPC.captureResult, operation, input),
+		onEvent: (listener) => {
+			const handle = (_event, payload) => {
+				listener(payload);
+			};
+			electron.ipcRenderer.on(DESKTOP_IPC.captureEvent, handle);
+			return () => {
+				electron.ipcRenderer.off(DESKTOP_IPC.captureEvent, handle);
+			};
+		}
+	},
 	locale: () => electron.ipcRenderer.invoke(DESKTOP_IPC.floatingLocale),
 	backend,
 	floating: standaloneFloating,

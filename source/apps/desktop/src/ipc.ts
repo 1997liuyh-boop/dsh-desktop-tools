@@ -14,6 +14,8 @@ import type { DesktopFileDrag } from '@deepseek-ai/dsh-util-file-drag'
 
 export const DESKTOP_IPC = {
   captureResult: 'dsh-desktop:capture-result',
+  /** 主进程推送给钉图与识别结果窗口的状态。 */
+  captureEvent: 'dsh-desktop:capture-event',
   fileSave: 'dsh-desktop:file-save',
   clipboardImageRead: 'dsh-desktop:clipboard-image-read',
   shortcutsInput: 'dsh-desktop:shortcuts-input',
@@ -105,6 +107,8 @@ export const DESKTOP_IPC = {
 export interface DshDesktopApi {
   readonly capture: {
     result(operation: string, input?: object): Promise<{ ok: true; value: unknown } | { ok: false; error: string; details: string }>
+    /** 订阅主进程推送的采集状态；返回取消订阅函数。 */
+    onEvent(listener: (event: unknown) => void): () => void
   }
   readonly protocolVersion: 1
 

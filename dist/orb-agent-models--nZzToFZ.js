@@ -1,4 +1,4 @@
-import { n as readDesktopToolsConfig, r as writeDesktopToolsConfig } from "./desktop-tools-config-DevUlYAh.js";
+import { n as readDesktopToolsConfig, r as writeDesktopToolsConfig } from "./desktop-tools-config-CoArygqo.js";
 import { BrowserWindow, Menu, screen, systemPreferences } from "electron";
 // source/apps/desktop/src/floating-agent-menu.ts
 const CURRENT_MODEL_MARK = "✓ ";

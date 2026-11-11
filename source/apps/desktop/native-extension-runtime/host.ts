@@ -4,6 +4,7 @@ import type { TypertGateway } from '@deepseek-ai/dsh-api-gateway'
 import type PermissionPresetService from '@deepseek-ai/dsh-permission-presets'
 import type { SessionStore } from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
+import { captureVisionStatus, installCaptureVision, runCaptureOcr, type CapturePluginManager, type CaptureToolsService } from './capture-vision.ts'
 
 /** 原生进程只读取这些官方服务，不依赖桌面主进程的私有扩展。 */
 export interface NativeHostBridgeContext {
@@ -13,6 +14,11 @@ export interface NativeHostBridgeContext {
   get(name: 'permissionPresets'): Pick<PermissionPresetService, 'set'> | undefined
   /** 读取可选会话服务；未安装时返回 undefined。 */
   get(name: 'sessions'): Pick<SessionStore, 'get'> | undefined
+  /** 读取工具注册表，用于直接调用 vision-router 的 OCR 工具。 */
+  get(name: 'tools'): CaptureToolsService | undefined
+  /** 读取插件管理器，用于检测与一键安装 vision-router。 */
+  get(name: 'pluginManager'): CapturePluginManager | undefined
+  readonly profileContext: { readonly dir: string }
 }
 
 /** Host 发送给原生进程的响应；二进制响应块使用 base64 编码。 */
@@ -51,10 +57,29 @@ function requestFailure(code: string, message: string): never {
   throw new NativeRequestError(code, message)
 }
 
-async function applyPermission(ctx: NativeHostBridgeContext, body: unknown): Promise<Response> {
-  if (!isRecord(body) || body.command !== 'permission' || !isRecord(body.payload)) {
-    requestFailure('native/command-invalid', '原生权限命令格式无效。')
+/** 截图识别图片的 base64 上限，约对应 30 MB PNG。 */
+const MAX_OCR_BASE64 = 40_000_000
+
+async function applyCommand(ctx: NativeHostBridgeContext, body: unknown, signal: AbortSignal): Promise<Response> {
+  if (!isRecord(body) || typeof body.command !== 'string') requestFailure('native/command-invalid', '原生命令格式无效。')
+  switch (body.command) {
+    case 'permission': return applyPermission(ctx, body)
+    case 'vision-status': return Response.json({ ok: true, value: await captureVisionStatus(ctx) })
+    case 'vision-install': return Response.json({ ok: true, value: await installCaptureVision(ctx) })
+    case 'vision-ocr': {
+      const payload = isRecord(body.payload) ? body.payload : {}
+      if (typeof payload.data !== 'string' || payload.data.length > MAX_OCR_BASE64 || !/^[A-Za-z0-9+/]*={0,2}$/u.test(payload.data)) {
+        requestFailure('native/ocr-invalid', '待识别图片格式无效或过大。')
+      }
+      const png = Buffer.from(payload.data, 'base64')
+      return Response.json({ ok: true, value: await runCaptureOcr(ctx, png, payload.long === true, signal) })
+    }
+    default: requestFailure('native/command-invalid', '原生命令不受支持。')
   }
+}
+
+async function applyPermission(ctx: NativeHostBridgeContext, body: Record<string, unknown>): Promise<Response> {
+  if (!isRecord(body.payload)) requestFailure('native/command-invalid', '原生权限命令格式无效。')
   const { preset, sessionId } = body.payload
   if ((preset !== 'read-only' && preset !== 'workspace-write' && preset !== 'danger-full-access')
     || typeof sessionId !== 'string' || sessionId === '') {
@@ -122,7 +147,7 @@ export function createNativeHostBridge(ctx: NativeHostBridgeContext, send: (mess
         signal.throwIfAborted()
         send({ type: 'dsh-native-end', id })
       } else if (path === '/.dsh/native-command') {
-        await respond(id, await applyPermission(ctx, JSON.parse(body)), signal)
+        await respond(id, await applyCommand(ctx, JSON.parse(body), signal), signal)
       } else if (RPC_PATHS.has(path)) {
         const response = await rpc.fetch(new Request(`http://dsh-native.local${path}`, {
           method: 'POST', headers: { 'content-type': 'application/json' }, body, signal,

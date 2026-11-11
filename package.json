@@ -1,9 +1,9 @@
 {
   "name": "dsh-desktop-tools",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "license": "MIT",
-  "description": "Desktop selection toolbar, floating assistant, screenshots and screen recording for DSH",
+  "description": "Desktop selection toolbar, floating assistant, screenshots, long screenshots and screen recording for DSH",
   "main": "./dist/index.js",
   "exports": {
     ".": "./dist/index.js",
@@ -30,7 +30,7 @@
   ],
   "scripts": {
     "build": "node build-assets.mjs && tsdown --config-loader native && node build-client.mjs",
-    "test": "node --experimental-strip-types --test source/apps/desktop/src/desktop-tools-config.test.ts source/apps/desktop/src/koffi-platform.test.ts",
+    "test": "node --experimental-strip-types --test source/apps/desktop/src/desktop-tools-config.test.ts source/apps/desktop/src/koffi-platform.test.ts source/apps/desktop/src/capture-ui/stitch.test.ts",
     "prepare": "npm run build"
   },
   "repository": {
@@ -91,7 +91,8 @@
     "@deepseek-ai/dsh-client-locale": "*",
     "@deepseek-ai/dsh-client-shortcuts": "*",
     "@deepseek-ai/dsh-client-ui-settings": "*",
-    "@deepseek-ai/dsh-client-ui-slots": "*"
+    "@deepseek-ai/dsh-client-ui-slots": "*",
+    "dsh-vision-router": ">=3.2.0"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
@@ -135,11 +136,16 @@
     },
     "@deepseek-ai/dsh-client-ui-slots": {
       "optional": true
+    },
+    "dsh-vision-router": {
+      "optional": true
     }
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.0",
     "@types/turndown": "5.0.6",
+    "gifenc": "1.0.3",
+    "mermaid": "^11.12.0",
     "micromark": "^4.0.2",
     "micromark-extension-gfm": "^3.0.0",
     "postcss": "^8.5.0",

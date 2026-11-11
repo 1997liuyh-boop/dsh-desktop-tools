@@ -52,7 +52,7 @@ export class NativeRuntime {
 
   /** @param command 辅助进程命令。 @param input 已校验参数。 */
   async command(command: 'capture-open' | 'permissions-status' | 'permission-open' | 'avatar-refresh', input: {
-    readonly mode?: 'image' | 'video'
+    readonly mode?: 'image' | 'video' | 'long'
     readonly right?: 'screen' | 'accessibility'
   }): Promise<unknown> {
     await this.start()

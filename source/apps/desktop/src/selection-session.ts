@@ -27,9 +27,72 @@ class SelectionModelUnavailable extends Error {
 }
 
 /** 划词任务专用的工作区目录与初始名称。 */
-interface SelectionTaskWorkspace {
+export interface SelectionTaskWorkspace {
   readonly path: string
   readonly title: string
+}
+
+/** 随提示词一起发送的图片内容块（base64）。 */
+export interface SelectionImagePart {
+  readonly type: 'image'
+  readonly mediaType: 'image/png' | 'image/jpeg'
+  readonly data: string
+  readonly name?: string
+}
+
+/**
+ * 注册（或复用）任务工作区并补全默认名称。
+ * @param transport Host 会话通道。
+ * @param workspace 工作区目录与名称。
+ * @param signal 取消信号。
+ * @returns 工作区标识。
+ */
+export async function resolveSelectionWorkspace(
+  transport: SelectionSessionTransport, workspace: SelectionTaskWorkspace, signal?: AbortSignal,
+): Promise<string> {
+  await mkdir(workspace.path, { recursive: true })
+  signal?.throwIfAborted()
+  const result = await selectionRpc(transport, 'workspace/create', { request: { path: workspace.path } }, signal)
+  const registered = selectionRecord(result.workspace)
+  if (typeof registered.workspaceId !== 'string') throw new Error('Workspace creation returned no id')
+  signal?.throwIfAborted()
+  // 保留用户重命名，也补全首次创建后被取消的默认名称。
+  if (result.created === true || registered.title === basename(workspace.path)) {
+    await selectionRpc(transport, 'workspace/rename', {
+      request: { workspaceId: registered.workspaceId, title: workspace.title },
+    }, signal)
+  }
+  return registered.workspaceId
+}
+
+/**
+ * 新建会话并提交一条带图片的消息，不等待模型回复；用于把截图转发到 DSH 对话。
+ * @param transport Host 会话通道。
+ * @param input 会话标题、工作区、文字与图片。
+ * @returns 新会话标识。
+ */
+export async function submitSelectionPrompt(transport: SelectionSessionTransport, input: {
+  readonly title: string
+  readonly workspace: SelectionTaskWorkspace
+  readonly text: string
+  readonly images: readonly SelectionImagePart[]
+  readonly model?: OrbAgentModelSelection | undefined
+}): Promise<string> {
+  const workspaceId = await resolveSelectionWorkspace(transport, input.workspace)
+  const created = await selectionRpc(transport, 'session/create', { request: { workspaceId } })
+  if (typeof created.sessionId !== 'string') throw new Error('Session creation returned no id')
+  const sessionId = created.sessionId
+  if (input.model !== undefined) {
+    await selectionRpc(transport, 'session/selectModel', { request: { sessionId,
+      provider: input.model.provider, model: input.model.model, saveAsDefault: false,
+      ...(input.model.reasoningEffort === undefined ? {} : { reasoningEffort: input.model.reasoningEffort }),
+    } })
+  }
+  await selectionRpc(transport, 'session/rename', { request: { sessionId, title: input.title } })
+  await selectionRpc(transport, 'session/prompt', { request: {
+    sessionId, requestId: randomUUID(), mode: 'queue', content: [{ type: 'text', text: input.text }, ...input.images],
+  } })
+  return sessionId
 }
 
 /** 校验来自 Host 的 JSON 对象。 */
@@ -97,14 +160,14 @@ export class SelectionSessionTask {
 
   /** 提交包含原文与要求的模型任务；指定工作区时先完成归组，再创建会话；指定固定模型时不再沿用源会话的模型。 */
   async run(prompt: string, title: string, sourceSessionId?: string, workspace?: SelectionTaskWorkspace,
-    fixedModel?: OrbAgentModelSelection): Promise<void> {
+    fixedModel?: OrbAgentModelSelection, images: readonly SelectionImagePart[] = []): Promise<void> {
     const signal = this.abort.signal
     // 取消信号可在每次异步请求期间变化。
     const cancelled = (): boolean => signal.aborted
     if (cancelled()) return
     this.emit('thinking')
     try {
-      const workspaceId = workspace === undefined ? undefined : await this.resolveWorkspace(workspace)
+      const workspaceId = workspace === undefined ? undefined : await resolveSelectionWorkspace(this.transport, workspace, signal)
       signal.throwIfAborted()
       const created = await selectionRpc(this.transport, 'session/create', {
         request: workspaceId === undefined ? {} : { workspaceId },
@@ -140,7 +203,7 @@ export class SelectionSessionTask {
       } }), signal)
       try {
         await selectionRpc(this.transport, 'session/prompt', { request: {
-          sessionId: this.sessionId, requestId: randomUUID(), mode: 'queue', content: [{ type: 'text', text: prompt }],
+          sessionId: this.sessionId, requestId: randomUUID(), mode: 'queue', content: [{ type: 'text', text: prompt }, ...images],
         } }, signal)
       } catch (error: unknown) {
         await response.body?.cancel()
@@ -195,23 +258,6 @@ export class SelectionSessionTask {
     this.abort.abort()
     if (this.ended || this.cancelAccepted) return
     await this.cancelSession()
-  }
-
-  private async resolveWorkspace(workspace: SelectionTaskWorkspace): Promise<string> {
-    const signal = this.abort.signal
-    await mkdir(workspace.path, { recursive: true })
-    signal.throwIfAborted()
-    const result = await selectionRpc(this.transport, 'workspace/create', { request: { path: workspace.path } }, signal)
-    const registered = selectionRecord(result.workspace)
-    if (typeof registered.workspaceId !== 'string') throw new Error('Workspace creation returned no id')
-    signal.throwIfAborted()
-    // 保留用户重命名，也补全首次创建后被取消的默认名称。
-    if (result.created === true || registered.title === basename(workspace.path)) {
-      await selectionRpc(this.transport, 'workspace/rename', {
-        request: { workspaceId: registered.workspaceId, title: workspace.title },
-      }, signal)
-    }
-    return registered.workspaceId
   }
 
   private async cancelSession(): Promise<void> {

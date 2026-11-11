@@ -23,8 +23,40 @@ export interface DesktopToolsConfig {
     readonly permissionPreset: DesktopPermissionPreset
     readonly coordinateMode: DesktopCoordinateMode
   }
-  readonly screenshot: { readonly enabled: boolean }
-  readonly recording: { readonly enabled: boolean }
+  readonly screenshot: {
+    readonly enabled: boolean
+    /** 截图全局快捷键（Electron Accelerator），空字符串表示不注册。 */
+    readonly shortcut: string
+    /** 长截图全局快捷键，空字符串表示不注册。 */
+    readonly longShortcut: string
+  }
+  readonly recording: {
+    readonly enabled: boolean
+    /** 录屏全局快捷键，空字符串表示不注册。 */
+    readonly shortcut: string
+    /** 默认输出格式。 */
+    readonly format: DesktopRecordingFormat
+    /** 默认清晰度。 */
+    readonly quality: DesktopRecordingQuality
+    /** 默认是否录制系统声音。 */
+    readonly systemAudio: boolean
+    /** 默认是否录制麦克风。 */
+    readonly microphone: boolean
+    /** 默认是否在录制结束后生成知识图谱。 */
+    readonly knowledgeGraph: boolean
+  }
+}
+
+/** 录屏输出格式。 */
+export type DesktopRecordingFormat = 'mp4' | 'webm' | 'gif'
+/** 录屏清晰度档位：标清 720p、高清 1080p、原画。 */
+export type DesktopRecordingQuality = 'sd' | 'hd' | 'original'
+
+/** 前置插件 dsh-vision-router 的可用状态。 */
+export interface DesktopVisionStatus {
+  /** ready：可调用 OCR；missing：未安装；disabled：已安装但未启用；tool-off：已启用但视觉工具关闭；unknown：无法判断。 */
+  readonly state: 'ready' | 'missing' | 'disabled' | 'tool-off' | 'unknown'
+  readonly version?: string
 }
 
 export type DesktopFeatureId = 'capture' | 'selection' | 'floatingBall'
@@ -38,6 +70,8 @@ export interface DesktopFeatureStatus {
 export interface DesktopToolsSnapshot {
   readonly config: DesktopToolsConfig
   readonly platform: string
+  /** 提取文字、翻译与知识图谱依赖的视觉插件状态。 */
+  readonly vision: DesktopVisionStatus
   readonly runtime: 'stopped' | 'running' | 'degraded'
   readonly features: Readonly<Record<DesktopFeatureId, DesktopFeatureStatus>>
 }

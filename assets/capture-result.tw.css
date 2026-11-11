@@ -1,0 +1,60 @@
+@import "./design-platform.css";
+@import "tailwindcss/theme";
+@import "tailwindcss/utilities";
+@source "../source/apps/desktop/src/capture-ui/result.ts";
+
+/* 截图识别结果窗口：标题栏可拖动，正文滚动，底部操作栏。 */
+:root { font-family: ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; color-scheme: light dark; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+body { background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font-size: 13px; }
+button, input, textarea { font: inherit; color: inherit; }
+[hidden] { display: none !important; }
+.app { display: flex; flex-direction: column; height: 100%; }
+.head { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 6px 0 14px; border-bottom: .5px solid var(--dsw-alias-border-l3); -webkit-app-region: drag; }
+.head button { -webkit-app-region: no-drag; }
+.body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px; user-select: text; }
+.actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 8px 10px; border-top: .5px solid var(--dsw-alias-border-l3); }
+.grow { flex: 1 1 auto; }
+.muted { color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.divider { width: 1px; height: 20px; margin: 0 4px; background: var(--dsw-alias-border-l3); }
+.note { color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.note[data-tone='error'], .error { color: #dc2626; }
+
+.tool {
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 30px; min-width: 30px; padding: 0 6px;
+  border: 0; border-radius: 8px; background: transparent; cursor: pointer; white-space: nowrap;
+}
+.tool:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.tool:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 1px; }
+.tool:disabled { opacity: .4; pointer-events: none; }
+.tool.with-text { padding: 0 10px; }
+.tool.primary { background: var(--dsw-alias-button-primary-fill); color: var(--dsw-alias-label-primary-foreground); font-weight: 600; }
+.tool.primary:hover { background: var(--dsw-alias-button-primary-hover); }
+.language { width: 76px; height: 28px; box-sizing: border-box; padding: 0 8px; border: .5px solid var(--dsw-alias-border-l3); border-radius: 7px; background: transparent; }
+
+.placeholder { display: flex; align-items: center; justify-content: center; gap: 10px; height: 100%; color: var(--dsw-alias-label-secondary); }
+.spinner { width: 16px; height: 16px; border: 2px solid var(--dsw-alias-border-l3); border-top-color: var(--dsw-alias-brand-primary); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.vision { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; max-width: 520px; line-height: 1.6; }
+.vision p { margin: 0; }
+.column { display: flex; flex-direction: column; gap: 12px; min-height: 100%; }
+.preview { max-height: 160px; max-width: 100%; align-self: flex-start; border-radius: 6px; border: .5px solid var(--dsw-alias-border-l3); object-fit: contain; }
+.editor {
+  flex: 1 1 auto; min-height: 220px; resize: none; box-sizing: border-box; padding: 10px 12px; border: .5px solid var(--dsw-alias-border-l3);
+  border-radius: 8px; background: transparent; line-height: 1.6; outline: none;
+}
+.editor:focus { border-color: var(--dsw-alias-brand-primary); }
+.source summary { cursor: pointer; color: var(--dsw-alias-label-secondary); }
+.source pre { white-space: pre-wrap; word-break: break-word; margin: 8px 0 0; padding: 10px; border-radius: 8px; background: var(--dsw-alias-interactive-bg-hover); font-size: 12px; }
+
+.markdown { line-height: 1.7; word-break: break-word; }
+.markdown h1, .markdown h2, .markdown h3 { margin: 1em 0 .4em; font-size: 1.08em; }
+.markdown p, .markdown ul, .markdown ol { margin: .4em 0; }
+.markdown ul, .markdown ol { padding-left: 1.4em; }
+.markdown code { padding: 1px 4px; border-radius: 4px; background: var(--dsw-alias-interactive-bg-hover); font-size: .92em; }
+.markdown pre { overflow: auto; padding: 10px; border-radius: 8px; background: var(--dsw-alias-interactive-bg-hover); }
+.markdown pre code { padding: 0; background: none; }
+.markdown table { border-collapse: collapse; }
+.markdown th, .markdown td { border: .5px solid var(--dsw-alias-border-l3); padding: 4px 8px; }
+.graph { margin: 6px 0 14px; padding: 10px; overflow: auto; border-radius: 10px; border: .5px solid var(--dsw-alias-border-l3); text-align: center; }
+.graph svg { max-width: 100%; height: auto; }
