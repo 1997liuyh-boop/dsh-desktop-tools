@@ -14,6 +14,8 @@ await build({
   esbuild: { jsx: 'automatic' },
   build: {
     outDir: 'dist', emptyOutDir: false,
+    // 宿主为 Electron 44（Chromium 内核），原生支持类字段：避免降级出的 __defProp 等辅助函数被提到注册横幅之前
+    target: 'es2022',
     // 保持 factory 参数名为 require，与官方 client 构建产物一致。
     minify: false,
     lib: {
@@ -22,7 +24,9 @@ await build({
       fileName: () => 'client.js',
     },
     rollupOptions: {
-      external: [/^@deepseek-ai\//u, 'react', 'react/jsx-runtime', 'react-dom', 'zod'],
+      // 宿主模块表只提供预加载模块；dsh-typert-protocol 属于线协议层，官方构建一律内联（宿主 INLINE_SAFE 规则），
+      // 若保持外部引用，运行时 require 会因模块表无此项而抛错，导致整个 web boot 失败。
+      external: [/^@deepseek-ai\/(?!dsh-typert-protocol(?:\/|$))/u, 'react', 'react/jsx-runtime', 'react-dom', 'zod'],
       output: {
         // DSH client-modules 只接受通过 __ModuleLoader__.load 注册的闭包工厂，外部依赖经注入的 require 读取模块表。
         banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(MODULE_ID)}, factory: (require) => {`,

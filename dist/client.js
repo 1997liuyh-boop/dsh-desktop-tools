@@ -6,7 +6,6 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   const jsxRuntime = require("react/jsx-runtime");
   const react = require("react");
   const zod = require("zod");
-  const remoteInfo = require("@deepseek-ai/dsh-typert-protocol/remote-info");
   const KEY_NAMES = {
     Space: "Space",
     Enter: "Return",
@@ -145,7 +144,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
       else if (feature === "screenshot") setDraft({ ...draft, screenshot: { ...draft.screenshot, enabled: enabled2 } });
       else setDraft({ ...draft, recording: { ...draft.recording, enabled: enabled2 } });
     };
-    const active = snapshot == null ? void 0 : snapshot.features[tab === "floating" ? "floatingBall" : tab === "selection" ? "selection" : "capture"];
+    const active = snapshot?.features[tab === "floating" ? "floatingBall" : tab === "selection" ? "selection" : "capture"];
     const enabled = draft === void 0 ? false : tab === "selection" ? draft.selection.enabled : tab === "floating" ? draft.floatingBall.enabled : tab === "screenshot" ? draft.screenshot.enabled : draft.recording.enabled;
     const setShortcut = (field, value) => {
       if (draft === void 0) return;
@@ -193,8 +192,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
       return () => document.removeEventListener("keydown", listener, true);
     }, [capturing]);
     const uploadAvatar = (event) => {
-      var _a;
-      const file = (_a = event.currentTarget.files) == null ? void 0 : _a[0];
+      const file = event.currentTarget.files?.[0];
       event.currentTarget.value = "";
       if (file === void 0 || !file.type.match(/^image\/(gif|png|webp)$/u)) return;
       const reader = new FileReader();
@@ -233,7 +231,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     return /* @__PURE__ */ jsxRuntime.jsxs("section", { className: "grid min-w-0 gap-4 text-[var(--dsw-alias-label-primary)]", "aria-busy": busy, children: [
       /* @__PURE__ */ jsxRuntime.jsxs("header", { className: "flex min-w-0 flex-wrap items-center justify-between gap-3", children: [
         /* @__PURE__ */ jsxRuntime.jsx("h2", { className: "text-base font-semibold", children: t("title") }),
-        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-xs text-[var(--dsw-alias-label-tertiary)]", children: (snapshot == null ? void 0 : snapshot.runtime) === "running" ? t("runtimeRunning") : (snapshot == null ? void 0 : snapshot.runtime) === "degraded" ? t("runtimeDegraded") : t("runtimeStopped") })
+        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-xs text-[var(--dsw-alias-label-tertiary)]", children: snapshot?.runtime === "running" ? t("runtimeRunning") : snapshot?.runtime === "degraded" ? t("runtimeDegraded") : t("runtimeStopped") })
       ] }),
       /* @__PURE__ */ jsxRuntime.jsx("nav", { className: "flex flex-wrap gap-1 border-b border-[var(--border-subtle)]", "aria-label": t("title"), children: tabs.map((item) => /* @__PURE__ */ jsxRuntime.jsx(
         "button",
@@ -253,7 +251,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
             /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: enabled, onChange: (event) => setFeature(tab, event.currentTarget.checked) }),
             t("enabled")
           ] }),
-          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-xs text-[var(--dsw-alias-label-tertiary)]", children: statusLabel((active == null ? void 0 : active.phase) ?? "disabled", t) })
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-xs text-[var(--dsw-alias-label-tertiary)]", children: statusLabel(active?.phase ?? "disabled", t) })
         ] }),
         tab === "selection" && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
           /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "grid gap-1 text-sm", children: [
@@ -311,7 +309,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
             ] }),
             ["screen", "accessibility"].map((right) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex flex-wrap items-center justify-between gap-2 text-sm", children: [
               /* @__PURE__ */ jsxRuntime.jsx("span", { children: t(right === "screen" ? "screenPermission" : "accessibilityPermission") }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { children: (permissions == null ? void 0 : permissions[right]) === true ? t("permissionGranted") : (permissions == null ? void 0 : permissions[right]) === false ? t("permissionDenied") : t("permissionUnknown") }),
+              /* @__PURE__ */ jsxRuntime.jsx("span", { children: permissions?.[right] === true ? t("permissionGranted") : permissions?.[right] === false ? t("permissionDenied") : t("permissionUnknown") }),
               /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: "text-[var(--dsw-alias-brand-primary)]", onClick: () => {
                 void services.openSystemPermission(right).then(() => {
                   void checkPermissions();
@@ -324,10 +322,10 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
           (tab === "screenshot" ? ["screenshot.shortcut", "screenshot.longShortcut"] : ["recording.shortcut"]).map((field) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "grid gap-1", children: [
             /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-sm text-[var(--dsw-alias-label-tertiary)]", children: t(field === "screenshot.longShortcut" ? "longShortcut" : "shortcut") }),
             /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex flex-wrap items-center gap-2", children: [
-              /* @__PURE__ */ jsxRuntime.jsx("kbd", { className: "rounded border border-[var(--dsw-alias-border-l2)] px-2 py-1 text-sm", children: acceleratorLabel(shortcutValue(field), snapshot == null ? void 0 : snapshot.platform) }),
+              /* @__PURE__ */ jsxRuntime.jsx("kbd", { className: "rounded border border-[var(--dsw-alias-border-l2)] px-2 py-1 text-sm", children: acceleratorLabel(shortcutValue(field), snapshot?.platform) }),
               /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: "rounded border border-[var(--dsw-alias-border-l2)] px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--dsw-alias-brand-primary)]", onClick: () => setCapturing(field), children: capturing === field ? t("recordingShortcut") : t("recordShortcut") }),
               shortcutValue(field) !== "" && /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: "px-2 py-2 text-sm text-[var(--dsw-alias-label-tertiary)] hover:text-[var(--dsw-alias-label-primary)]", onClick: () => setShortcut(field, ""), children: t("clearShortcut") }),
-              /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: "px-2 py-2 text-sm text-[var(--dsw-alias-brand-primary)] disabled:opacity-50", disabled: (active == null ? void 0 : active.phase) !== "active", onClick: () => {
+              /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: "px-2 py-2 text-sm text-[var(--dsw-alias-brand-primary)] disabled:opacity-50", disabled: active?.phase !== "active", onClick: () => {
                 void services.openCapture(field === "recording.shortcut" ? "video" : field === "screenshot.longShortcut" ? "long" : "image");
               }, children: t("tryNow") })
             ] })
@@ -337,13 +335,13 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
         tab === "screenshot" && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "grid gap-2 rounded border border-[var(--dsw-alias-border-l2)] p-3", children: [
           /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex flex-wrap items-center justify-between gap-2", children: [
             /* @__PURE__ */ jsxRuntime.jsx("h3", { className: "text-sm font-medium", children: t("visionTitle") }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: (snapshot == null ? void 0 : snapshot.vision.state) === "ready" ? "text-xs text-[var(--dsw-alias-state-success-primary)]" : "text-xs text-[var(--dsw-alias-label-tertiary)]", children: t((snapshot == null ? void 0 : snapshot.vision.state) === "ready" ? "visionStateReady" : (snapshot == null ? void 0 : snapshot.vision.state) === "missing" ? "visionStateMissing" : (snapshot == null ? void 0 : snapshot.vision.state) === "disabled" ? "visionStateDisabled" : (snapshot == null ? void 0 : snapshot.vision.state) === "tool-off" ? "visionStateToolOff" : "visionStateUnknown") })
+            /* @__PURE__ */ jsxRuntime.jsx("span", { className: snapshot?.vision.state === "ready" ? "text-xs text-[var(--dsw-alias-state-success-primary)]" : "text-xs text-[var(--dsw-alias-label-tertiary)]", children: t(snapshot?.vision.state === "ready" ? "visionStateReady" : snapshot?.vision.state === "missing" ? "visionStateMissing" : snapshot?.vision.state === "disabled" ? "visionStateDisabled" : snapshot?.vision.state === "tool-off" ? "visionStateToolOff" : "visionStateUnknown") })
           ] }),
           /* @__PURE__ */ jsxRuntime.jsx("p", { className: "text-sm text-[var(--dsw-alias-label-tertiary)]", children: t("visionDescription") }),
-          (snapshot == null ? void 0 : snapshot.vision.state) !== "ready" && (snapshot == null ? void 0 : snapshot.vision.state) !== "tool-off" && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex flex-wrap items-center gap-2", children: [
+          snapshot?.vision.state !== "ready" && snapshot?.vision.state !== "tool-off" && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex flex-wrap items-center gap-2", children: [
             /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", disabled: installing, className: "rounded bg-[var(--dsw-alias-brand-primary)] px-3 py-2 text-sm text-white disabled:opacity-50", onClick: () => {
               void installVision();
-            }, children: installing ? t("visionInstalling") : (snapshot == null ? void 0 : snapshot.vision.state) === "disabled" ? t("visionEnable") : t("visionInstall") }),
+            }, children: installing ? t("visionInstalling") : snapshot?.vision.state === "disabled" ? t("visionEnable") : t("visionInstall") }),
             /* @__PURE__ */ jsxRuntime.jsx("code", { className: "text-xs text-[var(--dsw-alias-label-tertiary)]", children: "dsh plugin add dsh-vision-router" })
           ] })
         ] }),
@@ -367,7 +365,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
             ] })
           ] }),
           ["systemAudio", "microphone", "knowledgeGraph"].map((field) => /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "flex min-h-10 items-center gap-2 text-sm", children: [
-            /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: draft.recording[field], disabled: field === "systemAudio" && (snapshot == null ? void 0 : snapshot.platform) === "linux", onChange: (event) => setDraft({ ...draft, recording: { ...draft.recording, [field]: event.currentTarget.checked } }) }),
+            /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: draft.recording[field], disabled: field === "systemAudio" && snapshot?.platform === "linux", onChange: (event) => setDraft({ ...draft, recording: { ...draft.recording, [field]: event.currentTarget.checked } }) }),
             t(field === "systemAudio" ? "recordingSystemAudio" : field === "microphone" ? "recordingMicrophone" : "recordingGraph")
           ] }, field)),
           /* @__PURE__ */ jsxRuntime.jsx("p", { className: "text-xs text-[var(--dsw-alias-label-tertiary)]", children: t("recordingGraphHint") })
@@ -1182,6 +1180,151 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   }
 }\r
 `;
+  function createTypertRemoteInfo(spec2, zod2) {
+    return new RemoteInfo(spec2, zod2);
+  }
+  class RemoteInfo {
+    spec;
+    zod;
+    index;
+    constructor(spec2, zod2) {
+      this.spec = spec2;
+      this.zod = zod2;
+    }
+    get package() {
+      return this.spec.package;
+    }
+    get descriptors() {
+      return this.resolve().descriptors;
+    }
+    get methods() {
+      return this.resolve().methods;
+    }
+    resolve() {
+      if (this.index !== void 0)
+        return this.index;
+      const zod2 = this.zod;
+      const descriptors = [];
+      const methods = /* @__PURE__ */ Object.create(null);
+      for (const [endpoint, definition] of Object.entries(this.spec.methods)) {
+        const separator = endpoint.indexOf("/");
+        const namespace = endpoint.slice(0, separator);
+        const method2 = endpoint.slice(separator + 1);
+        const parameters = definition.parameters.map((parameter2) => ({ ...parameter2, wire: parameter2.wire ?? parameter2.name }));
+        const descriptor = {
+          ...definition,
+          id: `${this.spec.package}#${endpoint}`,
+          namespace,
+          method: method2,
+          parameters,
+          result: definition.result.description === void 0 ? definition.result : new ResultValue(definition.result)
+        };
+        if (definition.invocation.kind === "direct") {
+          const inputs = [];
+          const direct = Object.assign(descriptor, {
+            input(options) {
+              const strict = options?.strict === true;
+              return inputs[strict ? 1 : 0] ??= new NamedInput(parameters, strict, zod2);
+            },
+            invoke(remote2, input, signal) {
+              const named = input;
+              const values = parameters.map((parameter2) => named[parameter2.wire]);
+              if (definition.cancellation !== void 0)
+                values.push(signal);
+              const receiver = Reflect.get(remote2, namespace);
+              const call = Reflect.get(receiver, method2);
+              return call.apply(receiver, values);
+            }
+          });
+          methods[endpoint] = direct;
+        }
+        descriptors.push(descriptor);
+      }
+      return this.index = { descriptors, methods };
+    }
+  }
+  function optional(parameter2) {
+    return parameter2.source === "json" && parameter2.acceptsUndefined === true;
+  }
+  class NamedInput {
+    parameters;
+    strict;
+    zod;
+    schema;
+    projection;
+    constructor(parameters, strict, zod2) {
+      this.parameters = parameters;
+      this.strict = strict;
+      this.zod = zod2;
+    }
+    codec(parameter2) {
+      return this.strict ? parameter2.strictCodec : parameter2.codec;
+    }
+    create = () => this.schema ??= this.zod.strictObject(Object.fromEntries(this.parameters.map((parameter2) => {
+      const value = this.codec(parameter2).create();
+      return [parameter2.wire, optional(parameter2) ? value.optional() : value.nonoptional()];
+    })));
+    get jsonSchema() {
+      return this.project().jsonSchema;
+    }
+    get jsonSchemaError() {
+      return this.project().jsonSchemaError;
+    }
+    project() {
+      if (this.projection !== void 0)
+        return this.projection;
+      const unavailable = this.parameters.find((parameter2) => this.codec(parameter2).jsonSchema === void 0);
+      if (unavailable !== void 0) {
+        return this.projection = { jsonSchemaError: this.codec(unavailable).jsonSchemaError ?? `No JSON Schema for parameter ${unavailable.wire}` };
+      }
+      return this.projection = {
+        jsonSchema: {
+          type: "object",
+          properties: Object.fromEntries(this.parameters.map((parameter2) => [parameter2.wire, {
+            ...this.codec(parameter2).jsonSchema,
+            ...parameter2.description === void 0 ? {} : { description: parameter2.description }
+          }])),
+          required: this.parameters.filter((parameter2) => !optional(parameter2)).map((parameter2) => parameter2.wire),
+          additionalProperties: false
+        }
+      };
+    }
+  }
+  class ResultValue {
+    spec;
+    projection;
+    constructor(spec2) {
+      this.spec = spec2;
+    }
+    get mode() {
+      return this.spec.mode;
+    }
+    get typeSymbol() {
+      return this.spec.typeSymbol;
+    }
+    get create() {
+      return this.spec.create;
+    }
+    get decode() {
+      return this.spec.decode;
+    }
+    get encode() {
+      return this.spec.encode;
+    }
+    get description() {
+      return this.spec.description;
+    }
+    get jsonSchemaError() {
+      return this.spec.jsonSchemaError;
+    }
+    get jsonSchema() {
+      if (this.projection === void 0) {
+        const schema = this.spec.jsonSchema;
+        this.projection = { value: schema === void 0 ? void 0 : { ...schema, description: this.spec.description } };
+      }
+      return this.projection.value;
+    }
+  }
   function codec(typeSymbol, schema) {
     return { mode: "strict", typeSymbol, create: () => schema };
   }
@@ -1213,7 +1356,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
       "desktopTools/openSystemPermission": method("openSystemPermission", [parameter("right", zod.z.enum(["screen", "accessibility"]))], json)
     }
   };
-  const remote = remoteInfo.createTypertRemoteInfo(spec, zod.z);
+  const remote = createTypertRemoteInfo(spec, zod.z);
   const inject = ["slots", "locale", "remote", "remote.desktopTools"];
   async function apply(ctx) {
     const unmount = await ctx.remote.$mount(remote);
