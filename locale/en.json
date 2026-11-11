@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Desktop Tools",
+    "title": "dsh-desktop-tools",
     "description": "Selection toolbar, floating assistant, screenshots with annotation, long screenshots and screen recording for DSH Desktop. Extract text, Translate and Knowledge graph need dsh-vision-router."
   }
 }
