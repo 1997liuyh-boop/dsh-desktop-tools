@@ -1,6 +1,6 @@
 {
   "name": "dsh-desktop-tools",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "type": "module",
   "license": "MIT",
   "description": "Desktop selection toolbar, floating assistant, screenshots, long screenshots and screen recording for DSH",
@@ -9,6 +9,7 @@
     ".": "./dist/index.js",
     "./client": "./dist/client.js",
     "./remote": "./dist/remote.js",
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "engines": {
@@ -18,6 +19,7 @@
   "files": [
     "dist",
     "assets",
+    "locale",
     "source",
     "build-assets.mjs",
     "build-client.mjs",
