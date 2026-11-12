@@ -32,7 +32,7 @@
   ],
   "scripts": {
     "build": "node build-assets.mjs && tsdown --config-loader native && node build-client.mjs",
-    "test": "node --experimental-strip-types --test source/apps/desktop/src/desktop-tools-config.test.ts source/apps/desktop/src/koffi-platform.test.ts source/apps/desktop/src/capture-ui/stitch.test.ts",
+    "test": "node --experimental-strip-types --test source/apps/desktop/src/desktop-tools-config.test.ts source/apps/desktop/src/koffi-platform.test.ts source/apps/desktop/src/capture-ui/stitch.test.ts source/apps/desktop/native-extension-runtime/helper-executable.test.ts",
     "prepare": "npm run build"
   },
   "repository": {

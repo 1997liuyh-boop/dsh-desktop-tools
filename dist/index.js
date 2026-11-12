@@ -6,8 +6,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import z from "@deepseek-ai/schemastery";
 import { Remote, TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
+import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { SessionId } from "@deepseek-ai/dsh-session/types";
+import { homedir } from "node:os";
 // source/apps/desktop/native-extension-runtime/capture-vision.ts
 /** Host 侧对前置插件 dsh-vision-router 的检测、一键安装与 OCR 调用。 */
 /** 前置插件的 npm 包名。 */
@@ -652,6 +654,29 @@ function createNativeHostBridge(ctx, send) {
 		}
 	};
 }
+// source/apps/desktop/native-extension-runtime/helper-executable.ts
+/** 桌面工具辅助进程的可执行文件选择（独立模块，便于单测）。 */
+/**
+* 选出启动辅助进程的 Electron 可执行文件。
+* 打包安装的 DSH（如 D:\deepseek-harness\DeepSeek Harness.exe）同级 resources 下有 app.asar，
+* 这类可执行文件总是启动自带应用、忽略脚本参数，不能用来跑 helper.js；此时改用独立 Electron：
+* 依次尝试 DSH_DESKTOP_TOOLS_ELECTRON 环境变量与 $DSH_HOME/electron（dsh-pet 等插件共用的落地目录）。
+* 开发模式下 DSH 由裸 electron.exe 启动，直接复用 process.execPath。
+* @param configured 插件设置中显式指定的路径。
+* @param execPath 当前宿主进程的可执行文件。
+* @param env 环境变量。
+* @param exists 文件存在判断（测试可替换）。
+* @returns 可用的可执行文件路径。
+*/
+function resolveHelperExecutable(configured, execPath, env, exists = existsSync) {
+	if (configured) return configured;
+	if (!exists(join(dirname(execPath), "resources", "app.asar"))) return execPath;
+	const binary = process.platform === "win32" ? "electron.exe" : process.platform === "darwin" ? join("Electron.app", "Contents", "MacOS", "Electron") : "electron";
+	const candidates = [env.DSH_DESKTOP_TOOLS_ELECTRON, join(env.DSH_HOME ?? join(homedir(), ".dsh"), "electron", binary)].filter((item) => typeof item === "string" && item.length > 0);
+	const found = candidates.find((item) => exists(item));
+	if (found) return found;
+	throw new Error("当前 DSH 为打包安装，不能直接用宿主程序启动桌面工具辅助进程；请在插件设置 electronExecutable 中填写独立 Electron 的路径，或设置环境变量 DSH_DESKTOP_TOOLS_ELECTRON。已尝试：" + candidates.join("、"));
+}
 // source/apps/desktop/native-extension-runtime/index.ts
 /** 官方 DSH 通过可注入服务管理独立原生插件，不依赖桌面扩展 API。 */
 /** 原生插件共用的 Electron 进程；每个插件独立等待激活和释放回执。 */
@@ -744,8 +769,9 @@ var NativeRuntime = class {
 		return this.started;
 	}
 	async launch() {
-		const executable = this.config.electronExecutable ?? process.execPath;
 		if (this.config.electronExecutable === void 0 && process.versions.electron === void 0) throw new Error("桌面工具仅支持在 DSH Desktop 中启动");
+		const executable = resolveHelperExecutable(this.config.electronExecutable, process.execPath, process.env);
+		this.ctx.logger.info("桌面工具辅助进程使用：%s", executable);
 		if (this.closed) throw new Error("Native desktop runtime was disabled before launch");
 		const environment = Object.fromEntries(Object.entries(process.env).filter(([key, value]) => value !== void 0 && !/KEY|SECRET|TOKEN|PASSWORD|ELECTRON_RUN_AS_NODE|NODE_OPTIONS|NODE_PATH/iu.test(key)));
 		const child = spawn(executable, [join(dirname(fileURLToPath(import.meta.url)), "helper.js"), `--dsh-profile=${resolve(this.ctx.profileContext.dir)}`], {

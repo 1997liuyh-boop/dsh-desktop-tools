@@ -110,8 +110,16 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
   const [installing, setInstalling] = useState(false)
 
   const load = async (): Promise<void> => {
-    const result = await services.snapshot()
-    if (!result.ok) { setMessage(t('loadError')); return }
+    setMessage('')
+    // 后端未就绪时远程调用可能抛错或一直不返回：限时 15 秒并把原因显示出来，避免页面只剩省略号
+    let result: Awaited<ReturnType<DesktopToolsSettingsServices['snapshot']>>
+    try {
+      result = await Promise.race([services.snapshot(), new Promise<never>((_, reject) => { setTimeout(() => { reject(new Error('timeout')) }, 15_000) })])
+    } catch (error) {
+      setMessage(t('loadError') + '（' + (error instanceof Error ? error.message : String(error)) + '）')
+      return
+    }
+    if (!result.ok) { setMessage(t('loadError') + '（' + String((result.error as { message?: unknown } | undefined)?.message ?? result.error) + '）'); return }
     setSnapshot(result.value)
     setDraft(result.value.config)
     setMessage('')
@@ -233,7 +241,10 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
 
   if (draft === undefined) return <section className="grid gap-4" aria-busy="true">
     <h2 className="text-base font-semibold text-[var(--dsw-alias-label-primary)]">{t('title')}</h2>
-    {message ? <p role="alert" className="text-sm text-[var(--dsw-alias-state-error-primary)]">{message}</p> : <p role="status" className="text-sm text-[var(--dsw-alias-label-tertiary)]">…</p>}
+    {message
+      ? <><p role="alert" className="text-sm text-[var(--dsw-alias-state-error-primary)]">{message}</p>
+        <button type="button" className="w-fit rounded border border-[var(--dsw-alias-border-l2)] px-3 py-1.5 text-sm" onClick={() => { void load() }}>{t('retryLoad')}</button></>
+      : <p role="status" className="text-sm text-[var(--dsw-alias-label-tertiary)]">{t('loading')}</p>}
   </section>
 
   return <section className="grid min-w-0 gap-4 text-[var(--dsw-alias-label-primary)]" aria-busy={busy}>
@@ -251,6 +262,7 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
       <div className="flex flex-wrap items-center justify-between gap-3">
         <label className="flex min-h-10 items-center gap-2 text-sm"><input type="checkbox" checked={enabled} onChange={event => setFeature(tab, event.currentTarget.checked)} />{t('enabled')}</label>
         <span className="text-xs text-[var(--dsw-alias-label-tertiary)]">{statusLabel(active?.phase ?? 'disabled', t)}</span>
+        {active?.phase === 'error' && active.error && <span role="alert" className="basis-full text-xs text-[var(--dsw-alias-state-error-primary)]">{active.error}</span>}
       </div>
       {tab === 'selection' && <>
         <label className="grid gap-1 text-sm"><span>{t('language')}</span><input className="min-w-0 rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)] px-3 py-2" value={draft.selection.targetLanguage} onChange={event => setDraft({ ...draft, selection: { ...draft.selection, targetLanguage: event.currentTarget.value } })} /></label>

@@ -94,9 +94,20 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     const [capturing, setCapturing] = react.useState();
     const [installing, setInstalling] = react.useState(false);
     const load = async () => {
-      const result = await services.snapshot();
+      setMessage("");
+      let result;
+      try {
+        result = await Promise.race([services.snapshot(), new Promise((_, reject) => {
+          setTimeout(() => {
+            reject(new Error("timeout"));
+          }, 15e3);
+        })]);
+      } catch (error) {
+        setMessage(t("loadError") + "（" + (error instanceof Error ? error.message : String(error)) + "）");
+        return;
+      }
       if (!result.ok) {
-        setMessage(t("loadError"));
+        setMessage(t("loadError") + "（" + String(result.error?.message ?? result.error) + "）");
         return;
       }
       setSnapshot(result.value);
@@ -226,7 +237,12 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     };
     if (draft === void 0) return /* @__PURE__ */ jsxRuntime.jsxs("section", { className: "grid gap-4", "aria-busy": "true", children: [
       /* @__PURE__ */ jsxRuntime.jsx("h2", { className: "text-base font-semibold text-[var(--dsw-alias-label-primary)]", children: t("title") }),
-      message ? /* @__PURE__ */ jsxRuntime.jsx("p", { role: "alert", className: "text-sm text-[var(--dsw-alias-state-error-primary)]", children: message }) : /* @__PURE__ */ jsxRuntime.jsx("p", { role: "status", className: "text-sm text-[var(--dsw-alias-label-tertiary)]", children: "…" })
+      message ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntime.jsx("p", { role: "alert", className: "text-sm text-[var(--dsw-alias-state-error-primary)]", children: message }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: "w-fit rounded border border-[var(--dsw-alias-border-l2)] px-3 py-1.5 text-sm", onClick: () => {
+          void load();
+        }, children: t("retryLoad") })
+      ] }) : /* @__PURE__ */ jsxRuntime.jsx("p", { role: "status", className: "text-sm text-[var(--dsw-alias-label-tertiary)]", children: t("loading") })
     ] });
     return /* @__PURE__ */ jsxRuntime.jsxs("section", { className: "grid min-w-0 gap-4 text-[var(--dsw-alias-label-primary)]", "aria-busy": busy, children: [
       /* @__PURE__ */ jsxRuntime.jsxs("header", { className: "flex min-w-0 flex-wrap items-center justify-between gap-3", children: [
@@ -251,7 +267,8 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
             /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: enabled, onChange: (event) => setFeature(tab, event.currentTarget.checked) }),
             t("enabled")
           ] }),
-          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-xs text-[var(--dsw-alias-label-tertiary)]", children: statusLabel(active?.phase ?? "disabled", t) })
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-xs text-[var(--dsw-alias-label-tertiary)]", children: statusLabel(active?.phase ?? "disabled", t) }),
+          active?.phase === "error" && active.error && /* @__PURE__ */ jsxRuntime.jsx("span", { role: "alert", className: "basis-full text-xs text-[var(--dsw-alias-state-error-primary)]", children: active.error })
         ] }),
         tab === "selection" && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
           /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "grid gap-1 text-sm", children: [
@@ -420,6 +437,8 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     saved: "Saved and applied",
     pending: "Saved, not yet applied",
     loadError: "Could not load desktop tools settings.",
+    loading: "Loading…",
+    retryLoad: "Reload",
     saveError: "Could not save desktop tools settings.",
     noRuntime: "Available only in DSH Desktop.",
     runtimeStopped: "Helper is stopped",
@@ -495,6 +514,8 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     saved: "已保存并生效",
     pending: "已保存，当前未生效",
     loadError: "无法读取桌面工具设置。",
+    loading: "正在读取桌面工具状态…",
+    retryLoad: "重新读取",
     saveError: "无法保存桌面工具设置。",
     noRuntime: "仅可在 DSH Desktop 中使用。",
     runtimeStopped: "辅助进程已停止",
@@ -543,7 +564,6 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     monospace;
     --color-red-50: oklch(97.1% 0.013 17.38);
     --color-red-200: oklch(88.5% 0.062 18.334);
-    --color-red-500: oklch(63.7% 0.237 25.331);
     --color-red-700: oklch(50.5% 0.213 27.518);
     --color-red-950: oklch(25.8% 0.092 26.042);
     --color-amber-50: oklch(98.7% 0.022 95.277);
@@ -562,7 +582,6 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     --color-slate-700: oklch(37.2% 0.044 257.287);
     --color-slate-800: oklch(27.9% 0.041 260.031);
     --color-slate-900: oklch(20.8% 0.042 265.755);
-    --color-black: #000;
     --color-white: #fff;
     --spacing: 0.25rem;
     --text-xs: 0.75rem;
@@ -579,7 +598,6 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     --font-weight-medium: 500;
     --font-weight-semibold: 600;
     --leading-snug: 1.375;
-    --radius-md: 0.375rem;
     --radius-lg: 0.5rem;
     --radius-xl: 0.75rem;
     --radius-2xl: 1rem;
@@ -694,17 +712,20 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .min-h-10 {
     min-height: calc(var(--spacing) * 10);
   }
+  .w-fit {
+    width: fit-content;
+  }
   .max-w-full {
     max-width: 100%;
   }
   .min-w-0 {
     min-width: 0px;
   }
-  .flex-grow {
-    flex-grow: 1;
-  }
   .grow {
     flex-grow: 1;
+  }
+  .basis-full {
+    flex-basis: 100%;
   }
   .transform {
     transform: var(--tw-rotate-x, ) var(--tw-rotate-y, ) var(--tw-rotate-z, ) var(--tw-skew-x, ) var(--tw-skew-y, );
@@ -790,6 +811,9 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   }
   .py-1 {
     padding-block: var(--spacing);
+  }
+  .py-1\\.5 {
+    padding-block: calc(var(--spacing) * 1.5);
   }
   .py-2 {
     padding-block: calc(var(--spacing) * 2);

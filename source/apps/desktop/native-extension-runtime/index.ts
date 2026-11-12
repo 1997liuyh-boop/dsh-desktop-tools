@@ -10,6 +10,7 @@ import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { DesktopToolsController, DesktopToolsService } from './desktop-tools-service.ts'
 import { createNativeHostBridge } from './host.ts'
+import { resolveHelperExecutable } from './helper-executable.ts'
 
 interface Descriptor {
   readonly id: string
@@ -96,10 +97,11 @@ export class NativeRuntime {
   }
 
   private async launch(): Promise<void> {
-    const executable = this.config.electronExecutable ?? process.execPath
     if (this.config.electronExecutable === undefined && process.versions.electron === undefined) {
       throw new Error('桌面工具仅支持在 DSH Desktop 中启动')
     }
+    const executable = resolveHelperExecutable(this.config.electronExecutable, process.execPath, process.env)
+    this.ctx.logger.info('桌面工具辅助进程使用：%s', executable)
     if (this.closed) throw new Error('Native desktop runtime was disabled before launch')
     const environment = Object.fromEntries(Object.entries(process.env).filter(([key, value]) => value !== undefined
       && !/KEY|SECRET|TOKEN|PASSWORD|ELECTRON_RUN_AS_NODE|NODE_OPTIONS|NODE_PATH/iu.test(key)))
