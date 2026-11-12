@@ -28,7 +28,7 @@ const spec = {
     'desktopTools/restart': method('restart', [], json),
     'desktopTools/installVision': method('installVision', [], json),
     'desktopTools/openCapture': method('openCapture', [parameter('mode', z.enum(['image', 'video', 'long']))], z.object({ opened: z.literal(true) })),
-    'desktopTools/avatar': method('avatar', [], z.object({ dataUrl: z.string().optional() })),
+    'desktopTools/avatar': method('avatar', [], z.object({ dataUrl: z.string().optional(), defaultDataUrl: z.string().optional() })),
     'desktopTools/setAvatar': method('setAvatar', [parameter('dataUrl', z.string()), parameter('fileName', z.string())], json),
     'desktopTools/restoreAvatar': method('restoreAvatar', [], json),
     'desktopTools/systemPermissions': method('systemPermissions', [], json),

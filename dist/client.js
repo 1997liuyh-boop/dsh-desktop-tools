@@ -6,6 +6,28 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   const jsxRuntime = require("react/jsx-runtime");
   const react = require("react");
   const zod = require("zod");
+  const LANGUAGES = [
+    ["en", "English"],
+    ["简体中文", "简体中文"],
+    ["繁體中文", "繁體中文"],
+    ["日本語", "日本語"],
+    ["한국어", "한국어"],
+    ["Français", "Français"],
+    ["Deutsch", "Deutsch"],
+    ["Español", "Español"],
+    ["Português", "Português"],
+    ["Русский", "Русский"],
+    ["العربية", "العربية"],
+    ["हिन्दी", "हिन्दी"],
+    ["Italiano", "Italiano"],
+    ["Tiếng Việt", "Tiếng Việt"],
+    ["ไทย", "ไทย"]
+  ];
+  const OTHER_LANGUAGE = "__other__";
+  function languageChoice(value) {
+    const normalized = value === "English" ? "en" : value === "zh" || value === "Chinese" || value === "中文" ? "简体中文" : value;
+    return LANGUAGES.some(([key]) => key === normalized) ? normalized : OTHER_LANGUAGE;
+  }
   const KEY_NAMES = {
     Space: "Space",
     Enter: "Return",
@@ -68,25 +90,72 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
       return expected[id] ? phase === "active" : phase === "disabled";
     });
   }
-  function ModelFields({ value, disabled, t, onChange }) {
-    return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "grid min-w-0 gap-3 sm:grid-cols-3", children: ["provider", "model", "reasoningEffort"].map((field) => /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "grid min-w-0 gap-1 text-sm", children: [
-      /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-[var(--dsw-alias-label-tertiary)]", children: t(field === "reasoningEffort" ? "effort" : field) }),
-      /* @__PURE__ */ jsxRuntime.jsx(
-        "input",
-        {
-          className: "min-w-0 rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)] px-3 py-2 text-[var(--dsw-alias-label-primary)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--dsw-alias-brand-primary)] disabled:opacity-60",
-          disabled,
-          value: value[field] ?? "",
-          onChange: (event) => onChange({ ...value, [field]: event.currentTarget.value })
-        }
-      )
-    ] }, field)) });
+  const FIELD_CLASS = "min-w-0 rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)] px-3 py-2 text-[var(--dsw-alias-label-primary)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--dsw-alias-brand-primary)] disabled:opacity-60";
+  function ModelFields({ value, disabled, t, catalog, onChange }) {
+    if (catalog === void 0 || catalog.groups.length === 0) {
+      return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "grid min-w-0 gap-3 sm:grid-cols-3", children: ["provider", "model", "reasoningEffort"].map((field) => /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "grid min-w-0 gap-1 text-sm", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-[var(--dsw-alias-label-tertiary)]", children: t(field === "reasoningEffort" ? "effort" : field) }),
+        /* @__PURE__ */ jsxRuntime.jsx("input", { className: FIELD_CLASS, disabled, value: value[field] ?? "", onChange: (event) => onChange({ ...value, [field]: event.currentTarget.value }) })
+      ] }, field)) });
+    }
+    const group = catalog.groups.find((item) => item.id === value.provider);
+    const model = group?.models.find((item) => item.id === value.model);
+    const efforts = model?.reasoning?.efforts ?? [];
+    const pickModel = (providerId, modelId) => {
+      const nextGroup = catalog.groups.find((item) => item.id === providerId);
+      const nextModel = nextGroup?.models.find((item) => item.id === modelId) ?? nextGroup?.models[0];
+      if (nextGroup === void 0 || nextModel === void 0) return;
+      const nextEfforts = nextModel.reasoning?.efforts ?? [];
+      const effort = nextEfforts.some((item) => item.id === value.reasoningEffort) ? value.reasoningEffort : nextModel.reasoning?.defaultEffort ?? nextEfforts[0]?.id;
+      onChange({ provider: nextGroup.id, model: nextModel.id, ...effort === void 0 ? {} : { reasoningEffort: effort } });
+    };
+    const unavailable = (label) => `${label}（${t("modelUnavailable")}）`;
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "grid min-w-0 gap-3 sm:grid-cols-3", children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "grid min-w-0 gap-1 text-sm", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-[var(--dsw-alias-label-tertiary)]", children: t("provider") }),
+        /* @__PURE__ */ jsxRuntime.jsxs("select", { className: FIELD_CLASS, disabled, value: value.provider, onChange: (event) => pickModel(event.currentTarget.value, void 0), children: [
+          group === void 0 && /* @__PURE__ */ jsxRuntime.jsx("option", { value: value.provider, children: unavailable(value.provider) }),
+          catalog.groups.map((item) => /* @__PURE__ */ jsxRuntime.jsx("option", { value: item.id, children: item.name }, item.id))
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "grid min-w-0 gap-1 text-sm", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-[var(--dsw-alias-label-tertiary)]", children: t("model") }),
+        /* @__PURE__ */ jsxRuntime.jsxs("select", { className: FIELD_CLASS, disabled: disabled || group === void 0, value: value.model, onChange: (event) => pickModel(value.provider, event.currentTarget.value), children: [
+          model === void 0 && /* @__PURE__ */ jsxRuntime.jsx("option", { value: value.model, children: unavailable(value.model) }),
+          group?.models.map((item) => /* @__PURE__ */ jsxRuntime.jsx("option", { value: item.id, children: item.name }, item.id))
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "grid min-w-0 gap-1 text-sm", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-[var(--dsw-alias-label-tertiary)]", children: t("effort") }),
+        /* @__PURE__ */ jsxRuntime.jsxs(
+          "select",
+          {
+            className: FIELD_CLASS,
+            disabled: disabled || efforts.length === 0,
+            value: value.reasoningEffort ?? "",
+            onChange: (event) => {
+              const effort = event.currentTarget.value;
+              const { reasoningEffort: _effort, ...rest } = value;
+              onChange(effort === "" ? rest : { ...rest, reasoningEffort: effort });
+            },
+            children: [
+              efforts.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("option", { value: "", children: t("effortNone") }),
+              value.reasoningEffort !== void 0 && efforts.length > 0 && !efforts.some((item) => item.id === value.reasoningEffort) && /* @__PURE__ */ jsxRuntime.jsx("option", { value: value.reasoningEffort, children: unavailable(value.reasoningEffort) }),
+              efforts.map((item) => /* @__PURE__ */ jsxRuntime.jsx("option", { value: item.id, children: item.name }, item.id))
+            ]
+          }
+        )
+      ] })
+    ] });
   }
   function DesktopToolsSettings({ t, services }) {
     const [tab, setTab] = react.useState("selection");
     const [snapshot, setSnapshot] = react.useState();
     const [draft, setDraft] = react.useState();
     const [avatar, setAvatar] = react.useState();
+    const [defaultAvatar, setDefaultAvatar] = react.useState();
+    const [catalog, setCatalog] = react.useState();
+    const [customLanguage, setCustomLanguage] = react.useState(false);
     const [permissions, setPermissions] = react.useState();
     const [busy, setBusy] = react.useState(false);
     const [pending, setPending] = react.useState(false);
@@ -113,8 +182,15 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
       setSnapshot(result.value);
       setDraft(result.value.config);
       setMessage("");
+      setCustomLanguage(languageChoice(result.value.config.selection.targetLanguage) === OTHER_LANGUAGE);
       const image = await services.avatar();
-      if (image.ok) setAvatar(image.value.dataUrl);
+      if (image.ok) {
+        setAvatar(image.value.dataUrl);
+        setDefaultAvatar(image.value.defaultDataUrl);
+      }
+      void services.modelCatalog().then(setCatalog, () => {
+        setCatalog(void 0);
+      });
     };
     react.useEffect(() => {
       void load();
@@ -271,9 +347,38 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
           active?.phase === "error" && active.error && /* @__PURE__ */ jsxRuntime.jsx("span", { role: "alert", className: "basis-full text-xs text-[var(--dsw-alias-state-error-primary)]", children: active.error })
         ] }),
         tab === "selection" && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "grid gap-1 text-sm", children: [
-            /* @__PURE__ */ jsxRuntime.jsx("span", { children: t("language") }),
-            /* @__PURE__ */ jsxRuntime.jsx("input", { className: "min-w-0 rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)] px-3 py-2", value: draft.selection.targetLanguage, onChange: (event) => setDraft({ ...draft, selection: { ...draft.selection, targetLanguage: event.currentTarget.value } }) })
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "grid gap-1 text-sm", children: [
+            /* @__PURE__ */ jsxRuntime.jsx("label", { htmlFor: "desktop-tools-language", children: t("language") }),
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex min-w-0 flex-wrap gap-2", children: [
+              /* @__PURE__ */ jsxRuntime.jsxs(
+                "select",
+                {
+                  id: "desktop-tools-language",
+                  className: FIELD_CLASS,
+                  value: customLanguage ? OTHER_LANGUAGE : languageChoice(draft.selection.targetLanguage),
+                  onChange: (event) => {
+                    const value = event.currentTarget.value;
+                    setCustomLanguage(value === OTHER_LANGUAGE);
+                    if (value !== OTHER_LANGUAGE) setDraft({ ...draft, selection: { ...draft.selection, targetLanguage: value } });
+                  },
+                  children: [
+                    LANGUAGES.map(([value, label]) => /* @__PURE__ */ jsxRuntime.jsx("option", { value, children: label }, value)),
+                    /* @__PURE__ */ jsxRuntime.jsx("option", { value: OTHER_LANGUAGE, children: t("otherLanguage") })
+                  ]
+                }
+              ),
+              customLanguage && /* @__PURE__ */ jsxRuntime.jsx(
+                "input",
+                {
+                  className: `${FIELD_CLASS} flex-1`,
+                  "aria-label": t("otherLanguage"),
+                  placeholder: t("otherLanguagePlaceholder"),
+                  maxLength: 80,
+                  value: languageChoice(draft.selection.targetLanguage) === OTHER_LANGUAGE ? draft.selection.targetLanguage : "",
+                  onChange: (event) => setDraft({ ...draft, selection: { ...draft.selection, targetLanguage: event.currentTarget.value } })
+                }
+              )
+            ] })
           ] }),
           /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "flex min-h-10 items-center gap-2 text-sm", children: [
             /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: draft.selection.compatibilityCopy, onChange: (event) => setDraft({ ...draft, selection: { ...draft.selection, compatibilityCopy: event.currentTarget.checked } }) }),
@@ -283,11 +388,12 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
             /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: draft.selection.model !== void 0, onChange: (event) => setSelectionModelEnabled(event.currentTarget.checked) }),
             t("customModel")
           ] }),
-          draft.selection.model === void 0 ? /* @__PURE__ */ jsxRuntime.jsx("p", { className: "text-sm text-[var(--dsw-alias-label-tertiary)]", children: t("followSession") }) : /* @__PURE__ */ jsxRuntime.jsx(ModelFields, { value: draft.selection.model, disabled: busy, t, onChange: (value) => setModel("selection", value) })
+          draft.selection.model === void 0 ? /* @__PURE__ */ jsxRuntime.jsx("p", { className: "text-sm text-[var(--dsw-alias-label-tertiary)]", children: t("followSession") }) : /* @__PURE__ */ jsxRuntime.jsx(ModelFields, { value: draft.selection.model, disabled: busy, t, catalog, onChange: (value) => setModel("selection", value) })
         ] }),
         tab === "floating" && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
           /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex flex-wrap items-center gap-3", children: [
-            avatar === void 0 ? /* @__PURE__ */ jsxRuntime.jsx("span", { "aria-hidden": "true", className: "size-12 rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)]" }) : /* @__PURE__ */ jsxRuntime.jsx("img", { src: avatar, alt: "", className: "size-12 rounded border border-[var(--dsw-alias-border-l2)] object-cover" }),
+            (avatar ?? defaultAvatar) === void 0 ? /* @__PURE__ */ jsxRuntime.jsx("span", { "aria-hidden": "true", className: "size-12 rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)]" }) : /* @__PURE__ */ jsxRuntime.jsx("img", { src: avatar ?? defaultAvatar, alt: t("avatar"), className: "size-12 rounded border border-[var(--dsw-alias-border-l2)] object-cover" }),
+            avatar === void 0 && defaultAvatar !== void 0 && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-xs text-[var(--dsw-alias-label-tertiary)]", children: t("defaultAvatar") }),
             /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "cursor-pointer rounded border border-[var(--dsw-alias-border-l2)] px-3 py-2 text-sm focus-within:ring-2 focus-within:ring-[var(--dsw-alias-brand-primary)]", children: [
               t("chooseAvatar"),
               /* @__PURE__ */ jsxRuntime.jsx("input", { className: "sr-only", type: "file", accept: "image/gif,image/png,image/webp", onChange: uploadAvatar })
@@ -299,9 +405,9 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
             }, children: t("restoreAvatar") })
           ] }),
           /* @__PURE__ */ jsxRuntime.jsx("h3", { className: "text-sm font-medium", children: t("conversationModel") }),
-          /* @__PURE__ */ jsxRuntime.jsx(ModelFields, { value: draft.floatingBall.conversationModel, disabled: busy, t, onChange: (value) => setModel("conversationModel", value) }),
+          /* @__PURE__ */ jsxRuntime.jsx(ModelFields, { value: draft.floatingBall.conversationModel, disabled: busy, t, catalog, onChange: (value) => setModel("conversationModel", value) }),
           /* @__PURE__ */ jsxRuntime.jsx("h3", { className: "text-sm font-medium", children: t("backgroundModel") }),
-          /* @__PURE__ */ jsxRuntime.jsx(ModelFields, { value: draft.floatingBall.backgroundModel, disabled: busy, t, onChange: (value) => setModel("backgroundModel", value) }),
+          /* @__PURE__ */ jsxRuntime.jsx(ModelFields, { value: draft.floatingBall.backgroundModel, disabled: busy, t, catalog, onChange: (value) => setModel("backgroundModel", value) }),
           /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "grid gap-1 text-sm", children: [
             /* @__PURE__ */ jsxRuntime.jsx("span", { children: t("permissionPreset") }),
             /* @__PURE__ */ jsxRuntime.jsxs("select", { className: "rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)] px-3 py-2", value: draft.floatingBall.permissionPreset, onChange: (event) => setDraft({ ...draft, floatingBall: { ...draft.floatingBall, permissionPreset: event.currentTarget.value } }), children: [
@@ -477,7 +583,12 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     recordingSystemAudio: "Record system sound by default",
     recordingMicrophone: "Record microphone by default",
     recordingGraph: "Generate a knowledge graph after recording by default",
-    recordingGraphHint: "The knowledge graph recognizes text in key frames with dsh-vision-router; speech is not transcribed. GIF recordings have no sound."
+    recordingGraphHint: "The knowledge graph recognizes text in key frames with dsh-vision-router; speech is not transcribed. GIF recordings have no sound.",
+    otherLanguage: "Other language…",
+    otherLanguagePlaceholder: "Type a target language",
+    modelUnavailable: "unavailable",
+    effortNone: "Not supported",
+    defaultAvatar: "Default avatar"
   };
   const zh = {
     title: "桌面工具",
@@ -554,7 +665,12 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     recordingSystemAudio: "默认录制系统声音",
     recordingMicrophone: "默认录制麦克风",
     recordingGraph: "默认在录制结束后生成知识图谱",
-    recordingGraphHint: "知识图谱通过 dsh-vision-router 识别关键帧中的文字生成，不转写语音。GIF 不含声音。"
+    recordingGraphHint: "知识图谱通过 dsh-vision-router 识别关键帧中的文字生成，不转写语音。GIF 不含声音。",
+    otherLanguage: "其他语言…",
+    otherLanguagePlaceholder: "输入目标语言",
+    modelUnavailable: "当前不可用",
+    effortNone: "不支持",
+    defaultAvatar: "默认头像"
   };
   const desktopToolsCss = `/*! tailwindcss v4.3.5 | MIT License | https://tailwindcss.com */
 @layer properties;
@@ -720,6 +836,9 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   }
   .min-w-0 {
     min-width: 0px;
+  }
+  .flex-1 {
+    flex: 1;
   }
   .grow {
     flex-grow: 1;
@@ -1379,7 +1498,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
       "desktopTools/restart": method("restart", [], json),
       "desktopTools/installVision": method("installVision", [], json),
       "desktopTools/openCapture": method("openCapture", [parameter("mode", zod.z.enum(["image", "video", "long"]))], zod.z.object({ opened: zod.z.literal(true) })),
-      "desktopTools/avatar": method("avatar", [], zod.z.object({ dataUrl: zod.z.string().optional() })),
+      "desktopTools/avatar": method("avatar", [], zod.z.object({ dataUrl: zod.z.string().optional(), defaultDataUrl: zod.z.string().optional() })),
       "desktopTools/setAvatar": method("setAvatar", [parameter("dataUrl", zod.z.string()), parameter("fileName", zod.z.string())], json),
       "desktopTools/restoreAvatar": method("restoreAvatar", [], json),
       "desktopTools/systemPermissions": method("systemPermissions", [], json),
@@ -1397,6 +1516,13 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     const namespace = "desktopTools";
     ctx.effect(() => ctx.locale.register(namespace, { en, zh }), "desktop-tools: dictionaries");
     const t = ctx.locale.bind(namespace);
+    let sessionRemote;
+    const sessionScope = ctx.inject(["remote.session"], (scope) => {
+      sessionRemote = scope.remote.session;
+      scope.effect(() => () => {
+        sessionRemote = void 0;
+      }, "desktop-tools: model catalog");
+    });
     const section = ctx.inject(["remote.desktopTools"], (inner) => {
       const tools = () => inner.remote.desktopTools;
       const services = {
@@ -1409,7 +1535,12 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
         systemPermissions: () => tools().systemPermissions(),
         openSystemPermission: (right) => tools().openSystemPermission(right),
         installVision: () => tools().installVision(),
-        openCapture: (mode) => tools().openCapture(mode)
+        openCapture: (mode) => tools().openCapture(mode),
+        async modelCatalog() {
+          if (sessionRemote === void 0) return void 0;
+          const result = await sessionRemote.modelCatalog();
+          return result.ok ? result.value : void 0;
+        }
       };
       inner.effect(() => inner.slots.inject("settings.section", () => inner.slots.register({
         name: "settings.section",
@@ -1433,6 +1564,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
       if (disposed) return;
       disposed = true;
       await section.dispose();
+      await sessionScope.dispose();
       style.remove();
       await unmount();
     };

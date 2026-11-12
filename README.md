@@ -12,7 +12,7 @@ Use DSH Desktop `>=0.2.2-rc.1 <0.3.0-0`, then add this repository as one plugin:
 https://github.com/1997liuyh-boop/dsh-desktop-tools.git
 ```
 
-Install tag `0.4.8`. The plugin includes its own helper, preload, native feature modules, static assets, and settings page. No separate `dsh-desktop-runtime`, `dsh-selection-toolbar`, `dsh-floating-ball`, or `dsh-capture` package is required.
+Install tag `0.4.9`. The plugin includes its own helper, preload, native feature modules, static assets, and settings page. No separate `dsh-desktop-runtime`, `dsh-selection-toolbar`, `dsh-floating-ball`, or `dsh-capture` package is required.
 
 Installation does not require an Electron `path.txt` file and does not use the `koffi` install script. The helper loads the matching prebuilt Koffi platform package.
 
@@ -74,7 +74,7 @@ Platform limits:
 
 ## Replace earlier plugins
 
-If the profile already has any of the four earlier entries, remove `dsh-selection-toolbar`, `dsh-floating-ball`, `dsh-capture`, and `dsh-desktop-runtime` before installing `dsh-desktop-tools@0.4.8`, then restart the Host. The new plugin stores settings in `desktop-tools.json`; it does not import the retired packages' separate settings files. Its defaults enable the selection toolbar and floating assistant, and disable screenshots and recording.
+If the profile already has any of the four earlier entries, remove `dsh-selection-toolbar`, `dsh-floating-ball`, `dsh-capture`, and `dsh-desktop-runtime` before installing `dsh-desktop-tools@0.4.9`, then restart the Host. The new plugin stores settings in `desktop-tools.json`; it does not import the retired packages' separate settings files. Its defaults enable the selection toolbar and floating assistant, and disable screenshots and recording.
 
 ## Settings
 

@@ -17,6 +17,7 @@ export const en = {
   recordingFormat: 'Default format', recordingQuality: 'Default quality', qualitySd: 'SD 720p', qualityHd: 'HD 1080p', qualityOriginal: 'Original',
   recordingSystemAudio: 'Record system sound by default', recordingMicrophone: 'Record microphone by default', recordingGraph: 'Generate a knowledge graph after recording by default',
   recordingGraphHint: 'The knowledge graph recognizes text in key frames with dsh-vision-router; speech is not transcribed. GIF recordings have no sound.',
+  otherLanguage: 'Other language…', otherLanguagePlaceholder: 'Type a target language', modelUnavailable: 'unavailable', effortNone: 'Not supported', defaultAvatar: 'Default avatar',
 } as const
 
 export const zh = {
@@ -37,6 +38,7 @@ export const zh = {
   recordingFormat: '默认格式', recordingQuality: '默认清晰度', qualitySd: '标清 720p', qualityHd: '高清 1080p', qualityOriginal: '原画',
   recordingSystemAudio: '默认录制系统声音', recordingMicrophone: '默认录制麦克风', recordingGraph: '默认在录制结束后生成知识图谱',
   recordingGraphHint: '知识图谱通过 dsh-vision-router 识别关键帧中的文字生成，不转写语音。GIF 不含声音。',
+  otherLanguage: '其他语言…', otherLanguagePlaceholder: '输入目标语言', modelUnavailable: '当前不可用', effortNone: '不支持', defaultAvatar: '默认头像',
 } satisfies Record<keyof typeof en, string>
 
 export type DesktopToolsLocaleKey = keyof typeof en

@@ -5,7 +5,7 @@ import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
-import { DesktopToolsSettings, type DesktopToolsSettingsServices } from './DesktopToolsSettings.tsx'
+import { DesktopToolsSettings, type DesktopToolsSettingsServices, type ModelCatalog } from './DesktopToolsSettings.tsx'
 import { en, zh } from './locales.ts'
 import desktopToolsCss from './desktop-tools.tw.css?inline'
 import type { DesktopToolsConfig, DesktopToolsSnapshot, DesktopToolsUpdateResult } from '../apps/desktop/src/desktop-tools-types.ts'
@@ -21,7 +21,7 @@ interface DesktopToolsRemote {
   restart(): Promise<RemoteResult<DesktopToolsSnapshot>>
   openCapture(mode: 'image' | 'video' | 'long'): Promise<RemoteResult<{ readonly opened: true }>>
   installVision(): Promise<RemoteResult<{ readonly snapshot: DesktopToolsSnapshot; readonly restartRequired: boolean }>>
-  avatar(): Promise<RemoteResult<{ readonly dataUrl?: string }>>
+  avatar(): Promise<RemoteResult<{ readonly dataUrl?: string; readonly defaultDataUrl?: string }>>
   setAvatar(dataUrl: string, fileName: string): Promise<RemoteResult<{ readonly saved: boolean; readonly applied: boolean; readonly error?: string }>>
   restoreAvatar(): Promise<RemoteResult<{ readonly saved: boolean; readonly applied: boolean; readonly error?: string }>>
   systemPermissions(): Promise<RemoteResult<{ readonly screen?: boolean; readonly accessibility?: boolean }>>
@@ -47,6 +47,13 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
   const t = ctx.locale.bind(namespace)
   // remote.desktopTools 由上面的 $mount 创建，不在插件 inject 中；
   // 必须在声明了它的内层上下文里读取，否则 cordis 报「cannot get property without inject」（与官方 action-cards 一致）。
+  // DSH 核心的 remote.session 提供与「模型」设置一致的模型目录；单独注入，缺失时只影响模型下拉。
+  type SessionRemote = { modelCatalog(): Promise<RemoteResult<ModelCatalog>> }
+  let sessionRemote: SessionRemote | undefined
+  const sessionScope = ctx.inject(['remote.session'], (scope) => {
+    sessionRemote = (scope.remote as unknown as { session: SessionRemote }).session
+    scope.effect(() => () => { sessionRemote = undefined }, 'desktop-tools: model catalog')
+  })
   const section = ctx.inject(['remote.desktopTools'], (inner) => {
     const tools = (): DesktopToolsRemote => inner.remote.desktopTools
     const services: DesktopToolsSettingsServices = {
@@ -57,6 +64,11 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       openSystemPermission: right => tools().openSystemPermission(right),
       installVision: () => tools().installVision(),
       openCapture: mode => tools().openCapture(mode),
+      async modelCatalog() {
+        if (sessionRemote === undefined) return undefined
+        const result = await sessionRemote.modelCatalog()
+        return result.ok ? result.value : undefined
+      },
     }
     inner.effect(() => inner.slots.inject('settings.section', () => inner.slots.register({
       name: 'settings.section', id: 'desktop-tools', order: 40, label: () => t('title'), locale: namespace,
@@ -69,6 +81,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
     if (disposed) return
     disposed = true
     await section.dispose()
+    await sessionScope.dispose()
     style.remove()
     await unmount()
   }

@@ -5,8 +5,8 @@ import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import z from "@deepseek-ai/schemastery";
+import { existsSync, readFileSync } from "node:fs";
 import { Remote, TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
-import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { SessionId } from "@deepseek-ai/dsh-session/types";
 import { homedir } from "node:os";
@@ -120,6 +120,7 @@ async function runCaptureOcr(ctx, png, long, signal) {
 	}
 }
 // source/apps/desktop/native-extension-runtime/desktop-tools-service.ts
+/** Host 侧桌面工具配置、功能生命周期与 Remote 接口。 */
 const FEATURE_ORDER = [
 	"capture",
 	"selection",
@@ -216,7 +217,12 @@ var DesktopToolsController = class {
 	/** @returns 当前自定义头像的 data URL，未设置时省略。 */
 	avatar() {
 		const dataUrl = readCustomOrbAvatarDataUrl(this.options.profileDir);
-		return dataUrl === void 0 ? {} : { dataUrl };
+		if (dataUrl !== void 0) return { dataUrl };
+		try {
+			return { defaultDataUrl: `data:image/png;base64,${readFileSync(join(this.options.root, "assets", "deepseek-avatar-preview.png")).toString("base64")}` };
+		} catch {
+			return {};
+		}
 	}
 	/** @param bytes 图片字节。 @param fileName 用户选择的文件名。 @returns 保存和 Helper 刷新状态。 */
 	async setAvatar(bytes, fileName) {

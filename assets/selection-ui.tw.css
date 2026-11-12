@@ -26,7 +26,7 @@ textarea { @apply resize-y leading-6; }
 .result-main { @apply min-h-0 flex-1 overflow-y-auto px-4 py-3; }
 .field-label { @apply mb-2 block text-xs text-slate-500; }
 .input-row { @apply mb-3 flex items-center gap-2; }
-.input-row input { @apply min-w-0 flex-1; }
+.input-row input, .input-row select { @apply min-w-0 flex-1; }
 .input-row button { @apply shrink-0; }
 #original { @apply my-3 text-xs text-slate-500; }
 #original pre { @apply max-h-28 overflow-y-auto whitespace-pre-wrap break-words leading-5; }

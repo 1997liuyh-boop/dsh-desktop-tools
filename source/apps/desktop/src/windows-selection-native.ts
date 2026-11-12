@@ -3,7 +3,7 @@
 
 
 
-import { execFile } from 'node:child_process'
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { loadKoffiPlatform, type KoffiFunction, type KoffiPlatform } from './koffi-platform.ts'
 import type { WindowsSelectionMessage, WindowsSelectionProbe, WindowsSelectionReadRequest } from './windows-selection.ts'
 import { copySelectionSafely } from './selection-clipboard.ts'
@@ -95,38 +95,50 @@ function windowsActivationApi(): WindowsActivationApi {
   return created
 }
 
+// 常驻 PowerShell：UIAutomation 程序集只加载一次，之后每次读取只需几毫秒。
+// 每行输入一个请求编号，输出「编号<TAB>JSON」一行。
 const SELECTION_SCRIPT = `
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
-$focused = [System.Windows.Automation.AutomationElement]::FocusedElement
-if ($null -eq $focused) { return }
-if ($focused.Current.IsPassword) { [pscustomobject]@{ text = ''; blocked = $true } | ConvertTo-Json -Compress; return }
-$pidValue = $focused.Current.ProcessId
-$walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
-$element = $focused
-for ($depth = 0; $depth -lt 8 -and $null -ne $element; $depth++) {
-  if ($element.Current.ProcessId -ne $pidValue) { break }
-  $candidates = @($element)
-  if ($depth -eq 1) {
-    $condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Document)
-    $docs = $element.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
-    for ($i = 0; $i -lt [Math]::Min($docs.Count, 12); $i++) { $candidates += $docs.Item($i) }
-  }
-  foreach ($candidate in $candidates) {
-    $pattern = $null
-    if (-not $candidate.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$pattern)) { continue }
-    foreach ($range in $pattern.GetSelection()) {
-      $text = $range.GetText(32000)
-      if ([string]::IsNullOrWhiteSpace($text)) { continue }
-      [pscustomobject]@{ text = $text; pid = $pidValue } | ConvertTo-Json -Compress
-      return
+function Read-DshSelection {
+  $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+  if ($null -eq $focused) { return }
+  if ($focused.Current.IsPassword) { [pscustomobject]@{ text = ''; blocked = $true } | ConvertTo-Json -Compress; return }
+  $pidValue = $focused.Current.ProcessId
+  $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+  $element = $focused
+  for ($depth = 0; $depth -lt 8 -and $null -ne $element; $depth++) {
+    if ($element.Current.ProcessId -ne $pidValue) { break }
+    $candidates = @($element)
+    if ($depth -eq 1) {
+      $condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Document)
+      $docs = $element.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
+      for ($i = 0; $i -lt [Math]::Min($docs.Count, 12); $i++) { $candidates += $docs.Item($i) }
     }
+    foreach ($candidate in $candidates) {
+      $pattern = $null
+      if (-not $candidate.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$pattern)) { continue }
+      foreach ($range in $pattern.GetSelection()) {
+        $text = $range.GetText(32000)
+        if ([string]::IsNullOrWhiteSpace($text)) { continue }
+        [pscustomobject]@{ text = $text; pid = $pidValue } | ConvertTo-Json -Compress
+        return
+      }
+    }
+    $element = $walker.GetParent($element)
   }
-  $element = $walker.GetParent($element)
+  [pscustomobject]@{ text = ''; pid = $pidValue; processName = (Get-Process -Id $pidValue).ProcessName } | ConvertTo-Json -Compress
 }
-[pscustomobject]@{ text = ''; pid = $pidValue; processName = (Get-Process -Id $pidValue).ProcessName } | ConvertTo-Json -Compress
+while ($true) {
+  $line = [Console]::In.ReadLine()
+  if ($null -eq $line) { break }
+  $out = ''
+  try { $out = (Read-DshSelection | Out-String).Trim() } catch { $out = '' }
+  [Console]::Out.WriteLine($line + [char]9 + $out)
+  [Console]::Out.Flush()
+}
 `
 
 function dip(user32: KoffiLibrary, shcore: KoffiLibrary, x: number, y: number): { x: number; y: number } {
@@ -151,43 +163,117 @@ function dip(user32: KoffiLibrary, shcore: KoffiLibrary, x: number, y: number): 
 
 
 
-export function readWindowsSelection(request?: WindowsSelectionReadRequest): Promise<Awaited<ReturnType<WindowsSelectionProbe['readSelection']>>> {
-  return new Promise((resolve) => {
-    execFile('powershell.exe', ['-NoProfile', '-STA', '-Command', SELECTION_SCRIPT], {
-      timeout: 4000,
-      windowsHide: true,
-      ...(request === undefined ? {} : { signal: request.signal }),
-    }, (error, stdout) => {
-      if (error !== null) {
-        resolve(undefined)
-        return
-      }
-      try {
-        const parsed: unknown = JSON.parse(stdout)
-        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-          resolve(undefined)
-          return
-        }
-        const record = parsed as Record<string, unknown>
-        if (typeof record.text !== 'string') {
-          resolve(undefined)
-          return
-        }
-        resolve({
-          text: record.text,
-          ...record.blocked === true ? { blocked: true } : {},
-          ...typeof record.pid === 'number' ? { pid: record.pid } : {},
-          ...typeof record.processName === 'string' ? { processName: record.processName } : {},
-          ...typeof record.x === 'number' ? { x: record.x } : {},
-          ...typeof record.y === 'number' ? { y: record.y } : {},
-          ...typeof record.width === 'number' ? { width: record.width } : {},
-          ...typeof record.height === 'number' ? { height: record.height } : {},
-        })
-      } catch {
-        resolve(undefined)
+/** 单次读取的超时；超时后重启常驻进程。 */
+const SELECTION_READ_TIMEOUT_MS = 4000
+
+/** 解析常驻进程返回的一行 JSON。 */
+function parseSelection(stdout: string): Awaited<ReturnType<WindowsSelectionProbe['readSelection']>> {
+  try {
+    const parsed: unknown = JSON.parse(stdout)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined
+    const record = parsed as Record<string, unknown>
+    if (typeof record.text !== 'string') return undefined
+    return {
+      text: record.text,
+      ...record.blocked === true ? { blocked: true } : {},
+      ...typeof record.pid === 'number' ? { pid: record.pid } : {},
+      ...typeof record.processName === 'string' ? { processName: record.processName } : {},
+      ...typeof record.x === 'number' ? { x: record.x } : {},
+      ...typeof record.y === 'number' ? { y: record.y } : {},
+      ...typeof record.width === 'number' ? { width: record.width } : {},
+      ...typeof record.height === 'number' ? { height: record.height } : {},
+    }
+  } catch {
+    return undefined
+  }
+}
+
+/** 常驻的 UIAutomation 读取进程；崩溃或超时后在下次读取时重建。 */
+class SelectionReaderProcess {
+  private child: ChildProcessWithoutNullStreams | undefined
+  private buffer = ''
+  private sequence = 0
+  private readonly waiting = new Map<string, (line: string | undefined) => void>()
+
+  private ensure(): ChildProcessWithoutNullStreams {
+    if (this.child !== undefined && this.child.exitCode === null && !this.child.killed) return this.child
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-STA', '-Command', SELECTION_SCRIPT], {
+      windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    this.child = child
+    this.buffer = ''
+    child.stdout.setEncoding('utf8')
+    child.stdout.on('data', (chunk: string) => {
+      this.buffer += chunk
+      for (let index = this.buffer.indexOf('\n'); index >= 0; index = this.buffer.indexOf('\n')) {
+        const line = this.buffer.slice(0, index).replace(/\r$/u, '')
+        this.buffer = this.buffer.slice(index + 1)
+        const tab = line.indexOf('\t')
+        if (tab < 0) continue
+        const resolve = this.waiting.get(line.slice(0, tab))
+        if (resolve === undefined) continue
+        this.waiting.delete(line.slice(0, tab))
+        resolve(line.slice(tab + 1))
       }
     })
-  })
+    child.stderr.resume()
+    const settle = (): void => {
+      if (this.child === child) this.child = undefined
+      for (const resolve of this.waiting.values()) resolve(undefined)
+      this.waiting.clear()
+    }
+    child.once('exit', settle)
+    child.once('error', settle)
+    // 不阻止辅助进程退出。
+    child.unref()
+    return child
+  }
+
+  /** 提前启动进程，让第一次划词也不必等待程序集加载。 */
+  warm(): void {
+    try { this.ensure() } catch (error: unknown) { console.debug('desktop selection: reader warm-up failed', error) }
+  }
+
+  read(signal?: AbortSignal): Promise<string | undefined> {
+    if (signal?.aborted === true) return Promise.resolve(undefined)
+    let child: ChildProcessWithoutNullStreams
+    try { child = this.ensure() } catch { return Promise.resolve(undefined) }
+    const id = String(++this.sequence)
+    return new Promise((resolve) => {
+      const finish = (line: string | undefined): void => {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', abort)
+        this.waiting.delete(id)
+        resolve(line)
+      }
+      const abort = (): void => { finish(undefined) }
+      const timer = setTimeout(() => {
+        // 目标应用卡住时 UIAutomation 可能长时间不返回，重启进程以免后续读取全部排队。
+        finish(undefined)
+        this.dispose()
+      }, SELECTION_READ_TIMEOUT_MS)
+      signal?.addEventListener('abort', abort, { once: true })
+      this.waiting.set(id, finish)
+      child.stdin.write(id + '\n')
+    })
+  }
+
+  dispose(): void {
+    const child = this.child
+    this.child = undefined
+    for (const resolve of this.waiting.values()) resolve(undefined)
+    this.waiting.clear()
+    if (child !== undefined && child.exitCode === null) {
+      child.stdin.end()
+      child.kill()
+    }
+  }
+}
+
+const selectionReader = new SelectionReaderProcess()
+
+export function readWindowsSelection(request?: WindowsSelectionReadRequest): Promise<Awaited<ReturnType<WindowsSelectionProbe['readSelection']>>> {
+  return selectionReader.read(request?.signal).then(line => line === undefined || line === '' ? undefined : parseSelection(line))
 }
 
 
@@ -281,7 +367,10 @@ export function installWindowsSelectionHooks(dispatch: (message: WindowsSelectio
     throw new Error('Windows selection hooks could not be installed')
   }
 
+  // 安装钩子时预热读取进程，第一次划词也不用等待 PowerShell 启动。
+  selectionReader.warm()
   return () => {
+    selectionReader.dispose()
     for (const hook of hooks) {
       if (hook !== null && hook !== undefined) UnhookWindowsHookEx(hook)
     }

@@ -50,10 +50,24 @@ void (async () => {
   element('close').setAttribute('aria-label', messages.selectionClose)
   element('language').placeholder = messages.selectionLanguagePlaceholder
   element('article-url').placeholder = messages.selectionArticleHint
-  for (const language of messages.selectionLanguages.split(';')) {
+  // 目标语言用下拉列表展示全部常用语言；「其他语言」再显示输入框。
+  // 原先的 input + datalist 会按当前值过滤候选项，预填 English 时下拉里只剩 English。
+  const OTHER_LANGUAGE = '__other__'
+  const languageNames = messages.selectionLanguages.split(';')
+  for (const language of [...languageNames, OTHER_LANGUAGE]) {
     const option = document.createElement('option')
     option.value = language
-    element('languages').append(option)
+    option.textContent = language === OTHER_LANGUAGE ? messages.selectionLanguageOther : language
+    element('language-select').append(option)
+  }
+  element('language-select').setAttribute('aria-label', messages.selectionToolbarLanguage)
+  /** 按语言代码或名称选中下拉项；列表外的语言切换到「其他语言」并填入输入框。 */
+  const selectLanguage = language => {
+    const name = language === 'en' ? 'English' : language === 'zh' ? '简体中文' : language
+    const known = languageNames.includes(name)
+    element('language-select').value = known ? name : OTHER_LANGUAGE
+    element('language').hidden = known
+    element('language').value = name
   }
   const showError = error => {
     const summaries = {
@@ -248,6 +262,18 @@ void (async () => {
   element('language').addEventListener('compositionend', () => { composing = false; syncControls() })
   element('language-form').addEventListener('submit', event => { event.preventDefault(); guarded(run) })
   element('language').addEventListener('change', () => guarded(run))
+  element('language-select').addEventListener('change', () => {
+    const value = element('language-select').value
+    if (value === OTHER_LANGUAGE) {
+      element('language').hidden = false
+      element('language').value = ''
+      element('language').focus()
+      return
+    }
+    element('language').hidden = true
+    element('language').value = value
+    guarded(run)
+  })
   element('article-form').addEventListener('submit', event => { event.preventDefault(); guarded(fetchArticle) })
   element('import-form').addEventListener('submit', event => { event.preventDefault(); guarded(importArticle) })
   for (const operation of ['clipboard', 'import-pdf', 'attach-media', 'record-video']) {
@@ -324,7 +350,7 @@ void (async () => {
   document.title = title
   element('title').textContent = title
   element('source').textContent = initial.text
-  element('language').value = initial.language === 'en' ? 'English' : initial.language === 'zh' ? messages.selectionLanguageZh : initial.language
+  selectLanguage(initial.language)
   element('compatibility').checked = initial.compatibilityCopy
   element('language-form').hidden = initial.action !== 'translate'
   element('article-form').hidden = initial.action !== 'wechat'

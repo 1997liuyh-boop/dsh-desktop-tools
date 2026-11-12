@@ -1,6 +1,6 @@
 /** 用户框选桌面区域后的截图、录屏与长截图；采集结果只写入本机目录。 */
 import {
-  BrowserWindow, desktopCapturer, clipboard, ClipboardItem, dialog, Menu, nativeImage, screen, session, shell, ShareMenu,
+  BrowserWindow, desktopCapturer, clipboard, dialog, Menu, nativeImage, screen, session, shell, ShareMenu,
   type IpcMain, type IpcMainInvokeEvent, type DesktopCapturerSource, type WebContents, type Rectangle,
 } from 'electron'
 import { execFile } from 'node:child_process'
@@ -11,6 +11,7 @@ import { DESKTOP_IPC } from './ipc.ts'
 import type { DesktopMessages } from './locale.ts'
 import type { DesktopRecordingFormat, DesktopToolsConfig, DesktopVisionStatus } from './desktop-tools-types.ts'
 import { captureScroller } from './capture-native-input.ts'
+import { writeClipboardPng } from './clipboard-compat.ts'
 import { composeSelectionTranslatePrompt, DESKTOP_SELECTION_PREAMBLE } from './selection-prompt.ts'
 import { SelectionSessionTask, submitSelectionPrompt, type SelectionSessionTransport, type SelectionTaskState } from './selection-session.ts'
 
@@ -353,7 +354,7 @@ export class DesktopCapture {
         if (entry.path || entry.file) throw new Error('Invalid screenshot data')
         const png = pngFrom(value.data)
         if (value.copy === true) {
-          await clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(png)]) })])
+          await writeClipboardPng(png)
           return { copied: true }
         }
         await mkdir(directory, { recursive: true })
@@ -611,7 +612,7 @@ export class DesktopCapture {
       }
       case 'pin-position': return pin.window.getBounds()
       case 'pin-copy': {
-        await clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(pin.png)]) })])
+        await writeClipboardPng(pin.png)
         return undefined
       }
       case 'pin-menu': {

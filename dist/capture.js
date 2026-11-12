@@ -1,11 +1,11 @@
 import { t as DESKTOP_IPC } from "./ipc-DldzT79T.js";
-import { a as composeSelectionTranslatePrompt, c as loadKoffiPlatform, i as DESKTOP_SELECTION_PREAMBLE, r as submitSelectionPrompt, t as SelectionSessionTask } from "./selection-session-kPyWKYGt.js";
+import { a as composeSelectionTranslatePrompt, i as DESKTOP_SELECTION_PREAMBLE, l as writeClipboardPng, r as submitSelectionPrompt, t as SelectionSessionTask, u as loadKoffiPlatform } from "./selection-session-B1IPOlEl.js";
 import { n as readDesktopToolsConfig } from "./desktop-tools-config-CoArygqo.js";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
 import { copyFile, mkdir, open, rename, rm, writeFile } from "node:fs/promises";
-import { BrowserWindow, ClipboardItem, Menu, ShareMenu, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, screen, session, shell } from "electron";
+import { BrowserWindow, Menu, ShareMenu, clipboard, desktopCapturer, dialog, globalShortcut, ipcMain, nativeImage, screen, session, shell } from "electron";
 // source/apps/desktop/src/capture-native-input.ts
 /** 长截图「自动滚动」所需的原生滚轮注入；Linux 不提供。 */
 const INPUT_MOUSE = 0;
@@ -469,7 +469,7 @@ var DesktopCapture = class {
 				if (entry.path || entry.file) throw new Error("Invalid screenshot data");
 				const png = pngFrom(value.data);
 				if (value.copy === true) {
-					await clipboard.write([new ClipboardItem({ "image/png": new Blob([new Uint8Array(png)]) })]);
+					await writeClipboardPng(png);
 					return { copied: true };
 				}
 				await mkdir(directory, { recursive: true });
@@ -847,7 +847,7 @@ var DesktopCapture = class {
 			}
 			case "pin-position": return pin.window.getBounds();
 			case "pin-copy":
-				await clipboard.write([new ClipboardItem({ "image/png": new Blob([new Uint8Array(pin.png)]) })]);
+				await writeClipboardPng(pin.png);
 				return;
 			case "pin-menu": {
 				const messages = this.messages;

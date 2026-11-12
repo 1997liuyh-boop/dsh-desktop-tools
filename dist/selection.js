@@ -1,9 +1,9 @@
 import { n as SCHEME, t as DESKTOP_IPC } from "./ipc-DldzT79T.js";
-import { a as composeSelectionTranslatePrompt, c as loadKoffiPlatform, n as selectionRecord, o as isSelectionLanguage, s as selectionSearchUrl, t as SelectionSessionTask } from "./selection-session-kPyWKYGt.js";
+import { a as composeSelectionTranslatePrompt, c as clipboardTypes, n as selectionRecord, o as isSelectionLanguage, s as selectionSearchUrl, t as SelectionSessionTask, u as loadKoffiPlatform } from "./selection-session-B1IPOlEl.js";
 import { m as OVERLAY_ALWAYS_ON_TOP_LEVEL, n as parseOrbAgentModelSelection, t as isOrbAgentModelSelection, u as presentOverlayWindow } from "./orb-agent-models--nZzToFZ.js";
 import { n as readDesktopToolsConfig, r as writeDesktopToolsConfig } from "./desktop-tools-config-CoArygqo.js";
 import { createRequire } from "node:module";
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,8 +36,8 @@ async function copySelectionSafely(port, signal) {
 		const current = port.sequence();
 		if (current === initial) continue;
 		if (!port.clipboardOwnerMatches()) return void 0;
-		const items = await clipboard.read();
-		if (!items.some((item) => item.types.includes("text/plain")) || items.some((item) => item.types.some((type) => !type.startsWith("text/")))) return void 0;
+		const types = await clipboardTypes();
+		if (!types.includes("text/plain") || types.some((type) => !type.startsWith("text/"))) return void 0;
 		if (cancelled() || port.sequence() !== current || !port.clipboardOwnerMatches() || !port.foregroundMatches()) return void 0;
 		const text = await clipboard.readText();
 		if (text.trim() === "" || cancelled() || port.sequence() !== current || !port.clipboardOwnerMatches() || !port.foregroundMatches()) return void 0;
@@ -135,33 +135,43 @@ $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
-$focused = [System.Windows.Automation.AutomationElement]::FocusedElement
-if ($null -eq $focused) { return }
-if ($focused.Current.IsPassword) { [pscustomobject]@{ text = ''; blocked = $true } | ConvertTo-Json -Compress; return }
-$pidValue = $focused.Current.ProcessId
-$walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
-$element = $focused
-for ($depth = 0; $depth -lt 8 -and $null -ne $element; $depth++) {
-  if ($element.Current.ProcessId -ne $pidValue) { break }
-  $candidates = @($element)
-  if ($depth -eq 1) {
-    $condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Document)
-    $docs = $element.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
-    for ($i = 0; $i -lt [Math]::Min($docs.Count, 12); $i++) { $candidates += $docs.Item($i) }
-  }
-  foreach ($candidate in $candidates) {
-    $pattern = $null
-    if (-not $candidate.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$pattern)) { continue }
-    foreach ($range in $pattern.GetSelection()) {
-      $text = $range.GetText(32000)
-      if ([string]::IsNullOrWhiteSpace($text)) { continue }
-      [pscustomobject]@{ text = $text; pid = $pidValue } | ConvertTo-Json -Compress
-      return
+function Read-DshSelection {
+  $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+  if ($null -eq $focused) { return }
+  if ($focused.Current.IsPassword) { [pscustomobject]@{ text = ''; blocked = $true } | ConvertTo-Json -Compress; return }
+  $pidValue = $focused.Current.ProcessId
+  $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+  $element = $focused
+  for ($depth = 0; $depth -lt 8 -and $null -ne $element; $depth++) {
+    if ($element.Current.ProcessId -ne $pidValue) { break }
+    $candidates = @($element)
+    if ($depth -eq 1) {
+      $condition = [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Document)
+      $docs = $element.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
+      for ($i = 0; $i -lt [Math]::Min($docs.Count, 12); $i++) { $candidates += $docs.Item($i) }
     }
+    foreach ($candidate in $candidates) {
+      $pattern = $null
+      if (-not $candidate.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$pattern)) { continue }
+      foreach ($range in $pattern.GetSelection()) {
+        $text = $range.GetText(32000)
+        if ([string]::IsNullOrWhiteSpace($text)) { continue }
+        [pscustomobject]@{ text = $text; pid = $pidValue } | ConvertTo-Json -Compress
+        return
+      }
+    }
+    $element = $walker.GetParent($element)
   }
-  $element = $walker.GetParent($element)
+  [pscustomobject]@{ text = ''; pid = $pidValue; processName = (Get-Process -Id $pidValue).ProcessName } | ConvertTo-Json -Compress
 }
-[pscustomobject]@{ text = ''; pid = $pidValue; processName = (Get-Process -Id $pidValue).ProcessName } | ConvertTo-Json -Compress
+while ($true) {
+  $line = [Console]::In.ReadLine()
+  if ($null -eq $line) { break }
+  $out = ''
+  try { $out = (Read-DshSelection | Out-String).Trim() } catch { $out = '' }
+  [Console]::Out.WriteLine($line + [char]9 + $out)
+  [Console]::Out.Flush()
+}
 `;
 function dip(user32, shcore, x, y) {
 	const monitor = user32.func("void * __stdcall MonitorFromPoint(DSH_SEL_POINT pt, uint32 dwFlags)")({
@@ -183,48 +193,128 @@ function dip(user32, shcore, x, y) {
 		y: y / scale
 	};
 }
-function readWindowsSelection(request) {
-	return new Promise((resolve) => {
-		execFile("powershell.exe", [
+/** 单次读取的超时；超时后重启常驻进程。 */
+const SELECTION_READ_TIMEOUT_MS = 4e3;
+/** 解析常驻进程返回的一行 JSON。 */
+function parseSelection(stdout) {
+	try {
+		const parsed = JSON.parse(stdout);
+		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return void 0;
+		const record = parsed;
+		if (typeof record.text !== "string") return void 0;
+		return {
+			text: record.text,
+			...record.blocked === true ? { blocked: true } : {},
+			...typeof record.pid === "number" ? { pid: record.pid } : {},
+			...typeof record.processName === "string" ? { processName: record.processName } : {},
+			...typeof record.x === "number" ? { x: record.x } : {},
+			...typeof record.y === "number" ? { y: record.y } : {},
+			...typeof record.width === "number" ? { width: record.width } : {},
+			...typeof record.height === "number" ? { height: record.height } : {}
+		};
+	} catch {
+		return;
+	}
+}
+/** 常驻的 UIAutomation 读取进程；崩溃或超时后在下次读取时重建。 */
+var SelectionReaderProcess = class {
+	child;
+	buffer = "";
+	sequence = 0;
+	waiting = /* @__PURE__ */ new Map();
+	ensure() {
+		if (this.child !== void 0 && this.child.exitCode === null && !this.child.killed) return this.child;
+		const child = spawn("powershell.exe", [
 			"-NoProfile",
+			"-NonInteractive",
 			"-STA",
 			"-Command",
 			SELECTION_SCRIPT
 		], {
-			timeout: 4e3,
 			windowsHide: true,
-			...request === void 0 ? {} : { signal: request.signal }
-		}, (error, stdout) => {
-			if (error !== null) {
-				resolve(void 0);
-				return;
-			}
-			try {
-				const parsed = JSON.parse(stdout);
-				if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-					resolve(void 0);
-					return;
-				}
-				const record = parsed;
-				if (typeof record.text !== "string") {
-					resolve(void 0);
-					return;
-				}
-				resolve({
-					text: record.text,
-					...record.blocked === true ? { blocked: true } : {},
-					...typeof record.pid === "number" ? { pid: record.pid } : {},
-					...typeof record.processName === "string" ? { processName: record.processName } : {},
-					...typeof record.x === "number" ? { x: record.x } : {},
-					...typeof record.y === "number" ? { y: record.y } : {},
-					...typeof record.width === "number" ? { width: record.width } : {},
-					...typeof record.height === "number" ? { height: record.height } : {}
-				});
-			} catch {
-				resolve(void 0);
+			stdio: [
+				"pipe",
+				"pipe",
+				"pipe"
+			]
+		});
+		this.child = child;
+		this.buffer = "";
+		child.stdout.setEncoding("utf8");
+		child.stdout.on("data", (chunk) => {
+			this.buffer += chunk;
+			for (let index = this.buffer.indexOf("\n"); index >= 0; index = this.buffer.indexOf("\n")) {
+				const line = this.buffer.slice(0, index).replace(/\r$/u, "");
+				this.buffer = this.buffer.slice(index + 1);
+				const tab = line.indexOf("	");
+				if (tab < 0) continue;
+				const resolve = this.waiting.get(line.slice(0, tab));
+				if (resolve === void 0) continue;
+				this.waiting.delete(line.slice(0, tab));
+				resolve(line.slice(tab + 1));
 			}
 		});
-	});
+		child.stderr.resume();
+		const settle = () => {
+			if (this.child === child) this.child = void 0;
+			for (const resolve of this.waiting.values()) resolve(void 0);
+			this.waiting.clear();
+		};
+		child.once("exit", settle);
+		child.once("error", settle);
+		child.unref();
+		return child;
+	}
+	/** 提前启动进程，让第一次划词也不必等待程序集加载。 */
+	warm() {
+		try {
+			this.ensure();
+		} catch (error) {
+			console.debug("desktop selection: reader warm-up failed", error);
+		}
+	}
+	read(signal) {
+		if (signal?.aborted === true) return Promise.resolve(void 0);
+		let child;
+		try {
+			child = this.ensure();
+		} catch {
+			return Promise.resolve(void 0);
+		}
+		const id = String(++this.sequence);
+		return new Promise((resolve) => {
+			const finish = (line) => {
+				clearTimeout(timer);
+				signal?.removeEventListener("abort", abort);
+				this.waiting.delete(id);
+				resolve(line);
+			};
+			const abort = () => {
+				finish(void 0);
+			};
+			const timer = setTimeout(() => {
+				finish(void 0);
+				this.dispose();
+			}, SELECTION_READ_TIMEOUT_MS);
+			signal?.addEventListener("abort", abort, { once: true });
+			this.waiting.set(id, finish);
+			child.stdin.write(id + "\n");
+		});
+	}
+	dispose() {
+		const child = this.child;
+		this.child = void 0;
+		for (const resolve of this.waiting.values()) resolve(void 0);
+		this.waiting.clear();
+		if (child !== void 0 && child.exitCode === null) {
+			child.stdin.end();
+			child.kill();
+		}
+	}
+};
+const selectionReader = new SelectionReaderProcess();
+function readWindowsSelection(request) {
+	return selectionReader.read(request?.signal).then((line) => line === void 0 || line === "" ? void 0 : parseSelection(line));
 }
 function activateWindowsPid(pid) {
 	const koffi = getKoffi();
@@ -313,7 +403,9 @@ function installWindowsSelectionHooks(dispatch) {
 		for (const callback of callbacks) koffi.unregister(callback);
 		throw new Error("Windows selection hooks could not be installed");
 	}
+	selectionReader.warm();
 	return () => {
+		selectionReader.dispose();
 		for (const hook of hooks) if (hook !== null && hook !== void 0) UnhookWindowsHookEx(hook);
 		for (const callback of callbacks) koffi.unregister(callback);
 	};

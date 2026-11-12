@@ -1,4 +1,5 @@
 import { clipboard } from 'electron'
+import { clipboardTypes } from './clipboard-compat.ts'
 
 /** 剪贴板兼容读取所需的原生前台与键盘操作。 */
 export interface SelectionCopyPort {
@@ -27,10 +28,9 @@ export async function copySelectionSafely(port: SelectionCopyPort, signal: Abort
     const current = port.sequence()
     if (current === initial) continue
     if (!port.clipboardOwnerMatches()) return undefined
-    const items = await clipboard.read()
+    const types = await clipboardTypes()
     // 图片、文件及未知格式不能作为划词结果，保留截图应用的新内容。
-    if (!items.some(item => item.types.includes('text/plain'))
-      || items.some(item => item.types.some(type => !type.startsWith('text/')))) return undefined
+    if (!types.includes('text/plain') || types.some(type => !type.startsWith('text/'))) return undefined
     if (cancelled() || port.sequence() !== current || !port.clipboardOwnerMatches() || !port.foregroundMatches()) return undefined
     const text = await clipboard.readText()
     if (text.trim() === '' || cancelled() || port.sequence() !== current

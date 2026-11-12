@@ -1,4 +1,6 @@
 /** Host 侧桌面工具配置、功能生命周期与 Remote 接口。 */
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { installOrbAvatarFromBytes, readCustomOrbAvatarDataUrl, restoreOrbAvatar } from '../src/orb-avatar.ts'
@@ -128,9 +130,16 @@ export class DesktopToolsController {
   }
 
   /** @returns 当前自定义头像的 data URL，未设置时省略。 */
-  avatar(): { readonly dataUrl?: string } {
+  avatar(): { readonly dataUrl?: string; readonly defaultDataUrl?: string } {
     const dataUrl = readCustomOrbAvatarDataUrl(this.options.profileDir)
-    return dataUrl === undefined ? {} : { dataUrl }
+    if (dataUrl !== undefined) return { dataUrl }
+    // 默认头像 GIF 约 7.7 MB，设置页只需预览，改用打包时生成的 128px 静态缩略图。
+    try {
+      const preview = readFileSync(join(this.options.root, 'assets', 'deepseek-avatar-preview.png'))
+      return { defaultDataUrl: `data:image/png;base64,${preview.toString('base64')}` }
+    } catch {
+      return {}
+    }
   }
 
   /** @param bytes 图片字节。 @param fileName 用户选择的文件名。 @returns 保存和 Helper 刷新状态。 */
@@ -321,7 +330,7 @@ export class DesktopToolsService extends TypertRemoteService {
   }
 
   /** @returns 当前自定义头像的 data URL，未设置时省略。 */
-  avatar(): { readonly dataUrl?: string } { return this.controller.avatar() }
+  avatar(): { readonly dataUrl?: string; readonly defaultDataUrl?: string } { return this.controller.avatar() }
 
   /** @param bytes 图片内容。 @param fileName 用户选择的文件名。 */
   setAvatar(dataUrl: string, fileName: string) {
