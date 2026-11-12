@@ -1397,31 +1397,42 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     const namespace = "desktopTools";
     ctx.effect(() => ctx.locale.register(namespace, { en, zh }), "desktop-tools: dictionaries");
     const t = ctx.locale.bind(namespace);
-    const services = {
-      snapshot: () => ctx.remote.desktopTools.snapshot(),
-      update: (config) => ctx.remote.desktopTools.update(config),
-      restart: () => ctx.remote.desktopTools.restart(),
-      avatar: () => ctx.remote.desktopTools.avatar(),
-      setAvatar: (dataUrl, fileName) => ctx.remote.desktopTools.setAvatar(dataUrl, fileName),
-      restoreAvatar: () => ctx.remote.desktopTools.restoreAvatar(),
-      systemPermissions: () => ctx.remote.desktopTools.systemPermissions(),
-      openSystemPermission: (right) => ctx.remote.desktopTools.openSystemPermission(right),
-      installVision: () => ctx.remote.desktopTools.installVision(),
-      openCapture: (mode) => ctx.remote.desktopTools.openCapture(mode)
-    };
-    const disposeSection = ctx.slots.inject("settings.section", () => ctx.slots.register({
-      name: "settings.section",
-      id: "desktop-tools",
-      order: 40,
-      label: () => t("title"),
-      locale: namespace,
-      inject: () => ({ services })
-    }, DesktopToolsSettings));
+    const section = ctx.inject(["remote.desktopTools"], (inner) => {
+      const tools = () => inner.remote.desktopTools;
+      const services = {
+        snapshot: () => tools().snapshot(),
+        update: (config) => tools().update(config),
+        restart: () => tools().restart(),
+        avatar: () => tools().avatar(),
+        setAvatar: (dataUrl, fileName) => tools().setAvatar(dataUrl, fileName),
+        restoreAvatar: () => tools().restoreAvatar(),
+        systemPermissions: () => tools().systemPermissions(),
+        openSystemPermission: (right) => tools().openSystemPermission(right),
+        installVision: () => tools().installVision(),
+        openCapture: (mode) => tools().openCapture(mode)
+      };
+      inner.effect(() => inner.slots.inject("settings.section", () => inner.slots.register({
+        name: "settings.section",
+        id: "desktop-tools",
+        order: 40,
+        label: () => t("title"),
+        locale: namespace,
+        inject: () => ({ services })
+      }, DesktopToolsSettings)), "desktop-tools: settings section");
+    });
+    try {
+      await section;
+    } catch (error) {
+      await section.dispose();
+      style.remove();
+      await unmount();
+      throw error;
+    }
     let disposed = false;
     const dispose = async () => {
       if (disposed) return;
       disposed = true;
-      disposeSection();
+      await section.dispose();
       style.remove();
       await unmount();
     };
