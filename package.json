@@ -1,6 +1,6 @@
 {
   "name": "dsh-desktop-tools",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "type": "module",
   "license": "MIT",
   "description": "Desktop selection toolbar, floating assistant, screenshots, long screenshots and screen recording for DSH",
