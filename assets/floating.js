@@ -3,6 +3,8 @@ const standaloneRuntime = api.runtime === 'standalone'
 let gifSrc = 'deepseek-avatar-square.gif'
 const COLLAPSE_MS = 180
 const ANIMATION_MS = 300
+// 双击判定窗口：两次点击间隔在此之内视为同一次「打开」。
+const DOUBLE_CLICK_MS = 450
 const DOCK_HOVER_DELAY_MS = 800
 const DOCK_DRAG_OFF_PX = 24
 const REMOTE_STREAM_URL = 'dsh-app://app/.dsh/remote-stream'
@@ -317,6 +319,8 @@ async function main() {
   let skipClick = false
   let collapsing = false
   let pinned = false
+  // 最近一次由点击打开聊天框的时间；双击的第二下落在这个窗口内时不再收起。
+  let clickOpenedAt = 0
   let tccGateVisible = false
   let expanded = false
   let opening = false
@@ -530,7 +534,15 @@ async function main() {
     if (next) {
       const revision = ++expansionRevision
       opening = true
-      const state = await api.floating.setExpanded(true)
+      let state
+      try {
+        state = await api.floating.setExpanded(true)
+      } catch (error) {
+        // 主进程调整窗口失败时复位，否则 opening 永远为 true，之后悬停和点击都无法再展开。
+        if (revision === expansionRevision) opening = false
+        console.error('悬浮球展开失败', error)
+        return
+      }
       if (pageClosed() || revision !== expansionRevision) return
       opening = false
       applyDocked(undefined)
@@ -1508,10 +1520,29 @@ async function main() {
       skipClick = false
       return
     }
-    pinned = !pinned
-    document.body.classList.toggle('pinned', pinned)
-    if (pinned) await setExpanded(true)
+    await toggleByClick()
   })
+  /** 点击即展开并钉住聊天框；已钉住时再点一次收起。双击的第二下不会把刚打开的聊天框收回。 */
+  async function toggleByClick() {
+    const now = performance.now()
+    if (pinned && (expanded || opening)) {
+      if (now - clickOpenedAt < DOUBLE_CLICK_MS) return
+      pinned = false
+      document.body.classList.remove('pinned')
+      await setExpanded(false, true)
+      return
+    }
+    pinned = true
+    clickOpenedAt = now
+    document.body.classList.add('pinned')
+    suppressExpand = false
+    await setExpanded(true, true)
+    // 展开失败时不保留钉住标记，避免收起状态下显示为已钉住。
+    if (!expanded && !opening) {
+      pinned = false
+      document.body.classList.remove('pinned')
+    }
+  }
   ball.addEventListener('pointercancel', event => {
     void finishPointer(event)
   })
@@ -1543,8 +1574,14 @@ async function main() {
     dragging = true
     void unsnapDocked()
   })
-  dockTab.addEventListener('pointerup', event => {
-    void finishPointer(event)
+  dockTab.addEventListener('pointerup', async event => {
+    if (!isPrimaryButton(event)) { void finishPointer(event); return }
+    const dragged = await finishPointer(event)
+    skipClick = false
+    if (dragged) return
+    // 点击吸边细条：先弹回悬浮球，再展开并钉住聊天框。
+    await unsnapDocked()
+    await toggleByClick()
   })
   dockTab.addEventListener('pointercancel', event => {
     void finishPointer(event)
