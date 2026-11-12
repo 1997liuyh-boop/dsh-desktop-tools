@@ -14,7 +14,21 @@ https://github.com/1997liuyh-boop/dsh-desktop-tools.git
 
 Install tag `0.4.7`. The plugin includes its own helper, preload, native feature modules, static assets, and settings page. No separate `dsh-desktop-runtime`, `dsh-selection-toolbar`, `dsh-floating-ball`, or `dsh-capture` package is required.
 
-Installation does not require an Electron `path.txt` file and does not use the `koffi` install script. The helper uses the DSH Desktop Electron executable and loads the matching prebuilt Koffi platform package.
+Installation does not require an Electron `path.txt` file and does not use the `koffi` install script. The helper loads the matching prebuilt Koffi platform package.
+
+## Prerequisite: a standalone Electron
+
+The plugin runs its features in a separate Electron helper process and never downloads Electron itself. Which executable it starts depends on how DSH Desktop was installed:
+
+- **Installed DSH Desktop** (the installer build, with `resources/app.asar` next to the executable, e.g. `DeepSeek Harness.exe`): that executable always starts DSH itself, so a **standalone Electron is required**. The helper uses the first one found:
+  1. the plugin's `electronExecutable` setting;
+  2. the `DSH_DESKTOP_TOOLS_ELECTRON` environment variable;
+  3. `$DSH_HOME/electron/` (`~/.dsh/electron/` by default): `electron.exe` on Windows, `Electron.app/Contents/MacOS/Electron` on macOS, `electron` on Linux. Extracting an official Electron release archive into this folder produces exactly this layout.
+
+  If none exists, enabling a feature fails with an error listing the paths it tried, and the settings page shows it.
+- **DSH Desktop started from a bare Electron** (development): the helper reuses that Electron and nothing else is needed.
+
+Use the same Electron major version as your DSH Desktop; other versions are untested.
 
 ## Prerequisite: dsh-vision-router
 

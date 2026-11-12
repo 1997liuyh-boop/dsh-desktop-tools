@@ -14,7 +14,21 @@ https://github.com/1997liuyh-boop/dsh-desktop-tools.git
 
 选择精确标签 `0.4.7`。插件已经包含辅助进程、预加载脚本、原生功能模块、静态资源和设置页，不需要再安装 `dsh-desktop-runtime`、`dsh-selection-toolbar`、`dsh-floating-ball` 或 `dsh-capture`。
 
-安装不依赖 Electron 的 `path.txt`，也不使用 `koffi` 安装脚本。辅助进程使用 DSH Desktop 当前的 Electron 可执行文件，并加载对应平台的 Koffi 预编译包。
+安装不依赖 Electron 的 `path.txt`，也不使用 `koffi` 安装脚本。辅助进程会加载对应平台的 Koffi 预编译包。
+
+## 前置条件：独立 Electron
+
+插件的各项功能运行在单独的 Electron 辅助进程中，插件本身不会下载 Electron。启动哪个可执行文件取决于 DSH Desktop 的安装方式：
+
+- **安装版 DSH Desktop**（安装包安装，可执行文件旁有 `resources/app.asar`，例如 `DeepSeek Harness.exe`）：这个程序只会启动 DSH 自身，因此**需要另备一个独立 Electron**。辅助进程按以下顺序使用找到的第一个：
+  1. 插件设置中的 `electronExecutable`；
+  2. 环境变量 `DSH_DESKTOP_TOOLS_ELECTRON`；
+  3. `$DSH_HOME/electron/`（默认 `~/.dsh/electron/`）：Windows 为 `electron.exe`，macOS 为 `Electron.app/Contents/MacOS/Electron`，Linux 为 `electron`。把 Electron 官方发布的压缩包解压到该目录即是这个结构。
+
+  都找不到时，启用功能会失败并列出已尝试的路径，设置页会显示这条错误。
+- **由裸 Electron 启动的 DSH Desktop**（开发模式）：辅助进程直接复用该 Electron，无需额外准备。
+
+请使用与 DSH Desktop 相同大版本的 Electron，其他版本未经测试。
 
 ## 前置插件：dsh-vision-router
 
