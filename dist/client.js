@@ -5,6 +5,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
   const jsxRuntime = require("react/jsx-runtime");
   const react = require("react");
+  const dshClientUiPrimitives = require("@deepseek-ai/dsh-client-ui-primitives");
   const zod = require("zod");
   const LANGUAGES = [
     ["en", "English"],
@@ -90,13 +91,60 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
       return expected[id] ? phase === "active" : phase === "disabled";
     });
   }
-  const FIELD_CLASS = "min-w-0 rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)] px-3 py-2 text-[var(--dsw-alias-label-primary)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--dsw-alias-brand-primary)] disabled:opacity-60";
-  function ModelFields({ value, disabled, t, catalog, onChange }) {
+  const ROW_CLASS = "flex min-w-0 flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b-[0.5px] border-[var(--dsw-alias-border-l2)] py-4 last:border-b-0";
+  const SELECTOR_CLASS = "inline-flex h-9 max-w-full min-w-0 cursor-pointer items-center gap-3 rounded-[var(--dsw-radius-md)] border-0 bg-[var(--dsw-alias-bg-module-platform)] px-3.5 text-sm leading-[22px] text-[var(--dsw-alias-label-primary)] hover:enabled:bg-[var(--dsw-alias-interactive-bg-hover)] disabled:cursor-default disabled:opacity-60";
+  const INPUT_CLASS = "h-9 min-w-0 rounded-[var(--dsw-radius-md)] border-0 bg-[var(--dsw-alias-bg-module-platform)] px-3.5 text-sm leading-[22px] text-[var(--dsw-alias-label-primary)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--dsw-alias-brand-primary)] disabled:opacity-60";
+  const BUTTON_BASE = "inline-flex h-9 min-w-[58px] flex-none cursor-pointer items-center justify-center whitespace-nowrap rounded-[var(--dsw-radius-md)] border-[0.5px] border-solid px-3.5 text-sm leading-[22px] no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dsw-alias-state-business-primary)] disabled:cursor-default disabled:opacity-50";
+  const BUTTON_CLASS = `${BUTTON_BASE} border-[var(--dsw-alias-border-l3)] bg-transparent text-[var(--dsw-alias-label-primary)] hover:enabled:bg-[var(--dsw-alias-interactive-bg-hover)]`;
+  const PRIMARY_BUTTON_CLASS = `${BUTTON_BASE} border-transparent bg-[var(--dsw-alias-button-primary-fill)] font-medium text-[var(--dsw-alias-label-primary-foreground)] hover:enabled:bg-[var(--dsw-alias-button-primary-hover)]`;
+  function Row({ title, description, children, alert }) {
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: ROW_CLASS, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex min-w-[220px] flex-1 basis-[220px] flex-col gap-1 pr-0 sm:pr-12", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "text-sm leading-[22px] text-[var(--dsw-alias-label-primary)]", children: title }),
+        description !== void 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "text-xs leading-[18px] text-[var(--dsw-alias-label-tertiary)]", children: description }),
+        alert !== void 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { role: "alert", className: "text-xs leading-[18px] text-[var(--dsw-alias-state-error-primary)]", children: alert })
+      ] }),
+      children !== void 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2", children })
+    ] });
+  }
+  function Select({ value, options, onChange, disabled = false, label }) {
+    const [open, setOpen] = react.useState(false);
+    const current = options.find((option) => option.id === value);
+    return /* @__PURE__ */ jsxRuntime.jsx(
+      dshClientUiPrimitives.Menu,
+      {
+        open,
+        onClose: () => setOpen(false),
+        items: options,
+        selectedId: value,
+        onSelect: (id) => {
+          setOpen(false);
+          if (id !== value) onChange(id);
+        },
+        align: "end",
+        portal: true,
+        anchor: /* @__PURE__ */ jsxRuntime.jsxs("button", { type: "button", className: SELECTOR_CLASS, "aria-haspopup": "menu", "aria-expanded": open, "aria-label": label, disabled: disabled || options.length === 0, onClick: () => setOpen((previous) => !previous), children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "min-w-0 truncate", children: current?.label ?? value }),
+          /* @__PURE__ */ jsxRuntime.jsx(dshClientUiPrimitives.IconChevronDownOutlineRegular, { className: "flex-none" })
+        ] })
+      }
+    );
+  }
+  function ModelRows({ heading, description, value, disabled, t, catalog, onChange }) {
+    const title = heading ?? t("model");
     if (catalog === void 0 || catalog.groups.length === 0) {
-      return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "grid min-w-0 gap-3 sm:grid-cols-3", children: ["provider", "model", "reasoningEffort"].map((field) => /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "grid min-w-0 gap-1 text-sm", children: [
-        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-[var(--dsw-alias-label-tertiary)]", children: t(field === "reasoningEffort" ? "effort" : field) }),
-        /* @__PURE__ */ jsxRuntime.jsx("input", { className: FIELD_CLASS, disabled, value: value[field] ?? "", onChange: (event) => onChange({ ...value, [field]: event.currentTarget.value }) })
-      ] }, field)) });
+      return /* @__PURE__ */ jsxRuntime.jsx(Row, { title, description, children: ["provider", "model", "reasoningEffort"].map((field) => /* @__PURE__ */ jsxRuntime.jsx(
+        "input",
+        {
+          className: `${INPUT_CLASS} w-36`,
+          disabled,
+          "aria-label": t(field === "reasoningEffort" ? "effort" : field),
+          placeholder: t(field === "reasoningEffort" ? "effort" : field),
+          value: value[field] ?? "",
+          onChange: (event) => onChange({ ...value, [field]: event.currentTarget.value })
+        },
+        field
+      )) });
     }
     const group = catalog.groups.find((item) => item.id === value.provider);
     const model = group?.models.find((item) => item.id === value.model);
@@ -110,42 +158,25 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
       onChange({ provider: nextGroup.id, model: nextModel.id, ...effort === void 0 ? {} : { reasoningEffort: effort } });
     };
     const unavailable = (label) => `${label}（${t("modelUnavailable")}）`;
-    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "grid min-w-0 gap-3 sm:grid-cols-3", children: [
-      /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "grid min-w-0 gap-1 text-sm", children: [
-        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-[var(--dsw-alias-label-tertiary)]", children: t("provider") }),
-        /* @__PURE__ */ jsxRuntime.jsxs("select", { className: FIELD_CLASS, disabled, value: value.provider, onChange: (event) => pickModel(event.currentTarget.value, void 0), children: [
-          group === void 0 && /* @__PURE__ */ jsxRuntime.jsx("option", { value: value.provider, children: unavailable(value.provider) }),
-          catalog.groups.map((item) => /* @__PURE__ */ jsxRuntime.jsx("option", { value: item.id, children: item.name }, item.id))
-        ] })
-      ] }),
-      /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "grid min-w-0 gap-1 text-sm", children: [
-        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-[var(--dsw-alias-label-tertiary)]", children: t("model") }),
-        /* @__PURE__ */ jsxRuntime.jsxs("select", { className: FIELD_CLASS, disabled: disabled || group === void 0, value: value.model, onChange: (event) => pickModel(value.provider, event.currentTarget.value), children: [
-          model === void 0 && /* @__PURE__ */ jsxRuntime.jsx("option", { value: value.model, children: unavailable(value.model) }),
-          group?.models.map((item) => /* @__PURE__ */ jsxRuntime.jsx("option", { value: item.id, children: item.name }, item.id))
-        ] })
-      ] }),
-      /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "grid min-w-0 gap-1 text-sm", children: [
-        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-[var(--dsw-alias-label-tertiary)]", children: t("effort") }),
-        /* @__PURE__ */ jsxRuntime.jsxs(
-          "select",
-          {
-            className: FIELD_CLASS,
-            disabled: disabled || efforts.length === 0,
-            value: value.reasoningEffort ?? "",
-            onChange: (event) => {
-              const effort = event.currentTarget.value;
-              const { reasoningEffort: _effort, ...rest } = value;
-              onChange(effort === "" ? rest : { ...rest, reasoningEffort: effort });
-            },
-            children: [
-              efforts.length === 0 && /* @__PURE__ */ jsxRuntime.jsx("option", { value: "", children: t("effortNone") }),
-              value.reasoningEffort !== void 0 && efforts.length > 0 && !efforts.some((item) => item.id === value.reasoningEffort) && /* @__PURE__ */ jsxRuntime.jsx("option", { value: value.reasoningEffort, children: unavailable(value.reasoningEffort) }),
-              efforts.map((item) => /* @__PURE__ */ jsxRuntime.jsx("option", { value: item.id, children: item.name }, item.id))
-            ]
+    const providerOptions = [...group === void 0 ? [{ id: value.provider, label: unavailable(value.provider) }] : [], ...catalog.groups.map((item) => ({ id: item.id, label: item.name }))];
+    const modelOptions = [...model === void 0 ? [{ id: value.model, label: unavailable(value.model) }] : [], ...group?.models.map((item) => ({ id: item.id, label: item.name })) ?? []];
+    const effortOptions = efforts.length === 0 ? [{ id: "", label: t("effortNone") }] : [...value.reasoningEffort !== void 0 && !efforts.some((item) => item.id === value.reasoningEffort) ? [{ id: value.reasoningEffort, label: unavailable(value.reasoningEffort) }] : [], ...efforts.map((item) => ({ id: item.id, label: item.name }))];
+    return /* @__PURE__ */ jsxRuntime.jsxs(Row, { title, description: description ?? `${t("provider")} / ${t("model")} / ${t("effort")}`, children: [
+      /* @__PURE__ */ jsxRuntime.jsx(Select, { label: t("provider"), value: value.provider, options: providerOptions, disabled, onChange: (id) => pickModel(id, void 0) }),
+      /* @__PURE__ */ jsxRuntime.jsx(Select, { label: t("model"), value: value.model, options: modelOptions, disabled: disabled || group === void 0, onChange: (id) => pickModel(value.provider, id) }),
+      /* @__PURE__ */ jsxRuntime.jsx(
+        Select,
+        {
+          label: t("effort"),
+          value: value.reasoningEffort ?? "",
+          options: effortOptions,
+          disabled: disabled || efforts.length === 0,
+          onChange: (effort) => {
+            const { reasoningEffort: _effort, ...rest } = value;
+            onChange(effort === "" ? rest : { ...rest, reasoningEffort: effort });
           }
-        )
-      ] })
+        }
+      )
     ] });
   }
   function DesktopToolsSettings({ t, services }) {
@@ -311,198 +342,198 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
         setDraft({ ...draft, selection });
       }
     };
-    if (draft === void 0) return /* @__PURE__ */ jsxRuntime.jsxs("section", { className: "grid gap-4", "aria-busy": "true", children: [
-      /* @__PURE__ */ jsxRuntime.jsx("h2", { className: "text-base font-semibold text-[var(--dsw-alias-label-primary)]", children: t("title") }),
+    if (draft === void 0) return /* @__PURE__ */ jsxRuntime.jsxs("section", { className: "flex min-w-0 flex-col gap-3 text-[var(--dsw-alias-label-primary)]", "aria-busy": "true", children: [
+      /* @__PURE__ */ jsxRuntime.jsx("h2", { className: "m-0 text-lg font-semibold", children: t("title") }),
       message ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-        /* @__PURE__ */ jsxRuntime.jsx("p", { role: "alert", className: "text-sm text-[var(--dsw-alias-state-error-primary)]", children: message }),
-        /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: "w-fit rounded border border-[var(--dsw-alias-border-l2)] px-3 py-1.5 text-sm", onClick: () => {
+        /* @__PURE__ */ jsxRuntime.jsx("p", { role: "alert", className: "m-0 text-sm text-[var(--dsw-alias-state-error-primary)]", children: message }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: `${BUTTON_CLASS} w-fit`, onClick: () => {
           void load();
         }, children: t("retryLoad") })
-      ] }) : /* @__PURE__ */ jsxRuntime.jsx("p", { role: "status", className: "text-sm text-[var(--dsw-alias-label-tertiary)]", children: t("loading") })
+      ] }) : /* @__PURE__ */ jsxRuntime.jsx("p", { role: "status", className: "m-0 text-[13px] text-[var(--dsw-alias-label-tertiary)]", children: t("loading") })
     ] });
-    return /* @__PURE__ */ jsxRuntime.jsxs("section", { className: "grid min-w-0 gap-4 text-[var(--dsw-alias-label-primary)]", "aria-busy": busy, children: [
-      /* @__PURE__ */ jsxRuntime.jsxs("header", { className: "flex min-w-0 flex-wrap items-center justify-between gap-3", children: [
-        /* @__PURE__ */ jsxRuntime.jsx("h2", { className: "text-base font-semibold", children: t("title") }),
-        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-xs text-[var(--dsw-alias-label-tertiary)]", children: snapshot?.runtime === "running" ? t("runtimeRunning") : snapshot?.runtime === "degraded" ? t("runtimeDegraded") : t("runtimeStopped") })
+    const enableKey = tab === "selection" ? "enableSelection" : tab === "floating" ? "enableFloating" : tab === "screenshot" ? "enableScreenshot" : "enableRecording";
+    const languageOptions = [...LANGUAGES.map(([id, label]) => ({ id, label })), { id: OTHER_LANGUAGE, label: t("otherLanguage") }];
+    const permissionText = (right) => permissions?.[right] === true ? t("permissionGranted") : permissions?.[right] === false ? t("permissionDenied") : t("permissionUnknown");
+    const shortcutRow = (field) => /* @__PURE__ */ jsxRuntime.jsxs(
+      Row,
+      {
+        title: t(field === "screenshot.longShortcut" ? "longShortcut" : "shortcut"),
+        description: capturing === field ? t("recordingShortcut") : t("shortcutDescription"),
+        children: [
+          /* @__PURE__ */ jsxRuntime.jsx("kbd", { className: "inline-flex h-9 min-w-[58px] items-center justify-center rounded-[var(--dsw-radius-md)] bg-[var(--dsw-alias-bg-module-platform)] px-3 font-[inherit] text-sm", children: acceleratorLabel(shortcutValue(field), snapshot?.platform) }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: BUTTON_CLASS, onClick: () => setCapturing(capturing === field ? void 0 : field), children: capturing === field ? t("cancelRecording") : t("recordShortcut") }),
+          shortcutValue(field) !== "" && /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: BUTTON_CLASS, onClick: () => setShortcut(field, ""), children: t("clearShortcut") }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: BUTTON_CLASS, disabled: active?.phase !== "active", onClick: () => {
+            void services.openCapture(field === "recording.shortcut" ? "video" : field === "screenshot.longShortcut" ? "long" : "image");
+          }, children: t("tryNow") })
+        ]
+      },
+      field
+    );
+    return /* @__PURE__ */ jsxRuntime.jsxs("section", { className: "flex min-w-0 flex-col gap-3 text-[var(--dsw-alias-label-primary)]", "aria-busy": busy, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex min-w-0 flex-col gap-1", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("h2", { className: "m-0 text-lg font-semibold", children: t("title") }),
+        /* @__PURE__ */ jsxRuntime.jsxs("p", { className: "m-0 text-[13px] text-[var(--dsw-alias-label-tertiary)]", children: [
+          t("intro"),
+          " · ",
+          snapshot?.runtime === "running" ? t("runtimeRunning") : snapshot?.runtime === "degraded" ? t("runtimeDegraded") : t("runtimeStopped")
+        ] })
       ] }),
-      /* @__PURE__ */ jsxRuntime.jsx("nav", { className: "flex flex-wrap gap-1 border-b border-[var(--border-subtle)]", "aria-label": t("title"), children: tabs.map((item) => /* @__PURE__ */ jsxRuntime.jsx(
+      /* @__PURE__ */ jsxRuntime.jsx("div", { role: "tablist", "aria-label": t("title"), className: "mt-0.5 flex flex-wrap items-end gap-x-[22px] border-b-[0.5px] border-[var(--dsw-alias-border-l2)]", children: tabs.map((item, index) => /* @__PURE__ */ jsxRuntime.jsx(
         "button",
         {
+          id: `desktop-tools-tab-${item}`,
           type: "button",
           role: "tab",
           "aria-selected": tab === item,
+          "aria-controls": "desktop-tools-panel",
+          tabIndex: tab === item ? 0 : -1,
+          "data-active": tab === item ? "true" : void 0,
           onClick: () => setTab(item),
-          className: "max-w-full border-b-2 border-transparent px-3 py-2 text-sm text-[var(--dsw-alias-label-tertiary)] hover:text-[var(--dsw-alias-label-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--dsw-alias-brand-primary)] aria-selected:border-[var(--dsw-alias-brand-primary)] aria-selected:text-[var(--dsw-alias-label-primary)]",
+          onKeyDown: (event) => {
+            const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index - 1 + tabs.length) % tabs.length : void 0;
+            if (next === void 0) return;
+            event.preventDefault();
+            setTab(tabs[next]);
+            document.getElementById(`desktop-tools-tab-${tabs[next]}`)?.focus();
+          },
+          className: "relative flex-none cursor-pointer border-0 bg-transparent px-px pb-[9px] pt-[7px] font-[inherit] text-[13px] leading-5 text-[var(--dsw-alias-label-tertiary)] hover:text-[var(--dsw-alias-label-primary)] focus-visible:rounded-[2px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dsw-alias-state-business-primary)] data-[active=true]:text-[var(--dsw-alias-label-primary)] data-[active=true]:after:absolute data-[active=true]:after:inset-x-0 data-[active=true]:after:-bottom-px data-[active=true]:after:h-0.5 data-[active=true]:after:rounded-t-[2px] data-[active=true]:after:bg-[var(--dsw-alias-label-primary)] data-[active=true]:after:content-['']",
           children: t(item)
         },
         item
       )) }),
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "grid min-w-0 gap-4", role: "tabpanel", children: [
-        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex flex-wrap items-center justify-between gap-3", children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "flex min-h-10 items-center gap-2 text-sm", children: [
-            /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: enabled, onChange: (event) => setFeature(tab, event.currentTarget.checked) }),
-            t("enabled")
-          ] }),
-          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-xs text-[var(--dsw-alias-label-tertiary)]", children: statusLabel(active?.phase ?? "disabled", t) }),
-          active?.phase === "error" && active.error && /* @__PURE__ */ jsxRuntime.jsx("span", { role: "alert", className: "basis-full text-xs text-[var(--dsw-alias-state-error-primary)]", children: active.error })
-        ] }),
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { id: "desktop-tools-panel", role: "tabpanel", "aria-labelledby": `desktop-tools-tab-${tab}`, className: "flex min-w-0 flex-col pt-0.5", children: [
+        /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t(enableKey), description: enabled ? statusLabel(active?.phase ?? "disabled", t) : t("featureDisabled"), alert: active?.phase === "error" && active.error ? active.error : void 0, children: /* @__PURE__ */ jsxRuntime.jsx(dshClientUiPrimitives.Switch, { checked: enabled, disabled: busy, label: t(enableKey), onChange: (next) => setFeature(tab, next) }) }),
         tab === "selection" && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "grid gap-1 text-sm", children: [
-            /* @__PURE__ */ jsxRuntime.jsx("label", { htmlFor: "desktop-tools-language", children: t("language") }),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex min-w-0 flex-wrap gap-2", children: [
-              /* @__PURE__ */ jsxRuntime.jsxs(
-                "select",
-                {
-                  id: "desktop-tools-language",
-                  className: FIELD_CLASS,
-                  value: customLanguage ? OTHER_LANGUAGE : languageChoice(draft.selection.targetLanguage),
-                  onChange: (event) => {
-                    const value = event.currentTarget.value;
-                    setCustomLanguage(value === OTHER_LANGUAGE);
-                    if (value !== OTHER_LANGUAGE) setDraft({ ...draft, selection: { ...draft.selection, targetLanguage: value } });
-                  },
-                  children: [
-                    LANGUAGES.map(([value, label]) => /* @__PURE__ */ jsxRuntime.jsx("option", { value, children: label }, value)),
-                    /* @__PURE__ */ jsxRuntime.jsx("option", { value: OTHER_LANGUAGE, children: t("otherLanguage") })
-                  ]
+          /* @__PURE__ */ jsxRuntime.jsxs(Row, { title: t("language"), description: t("languageDescription"), children: [
+            customLanguage && /* @__PURE__ */ jsxRuntime.jsx(
+              "input",
+              {
+                className: `${INPUT_CLASS} w-40`,
+                "aria-label": t("otherLanguage"),
+                placeholder: t("otherLanguagePlaceholder"),
+                maxLength: 80,
+                value: languageChoice(draft.selection.targetLanguage) === OTHER_LANGUAGE ? draft.selection.targetLanguage : "",
+                onChange: (event) => setDraft({ ...draft, selection: { ...draft.selection, targetLanguage: event.currentTarget.value } })
+              }
+            ),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              Select,
+              {
+                label: t("language"),
+                value: customLanguage ? OTHER_LANGUAGE : languageChoice(draft.selection.targetLanguage),
+                options: languageOptions,
+                onChange: (value) => {
+                  setCustomLanguage(value === OTHER_LANGUAGE);
+                  if (value !== OTHER_LANGUAGE) setDraft({ ...draft, selection: { ...draft.selection, targetLanguage: value } });
                 }
-              ),
-              customLanguage && /* @__PURE__ */ jsxRuntime.jsx(
-                "input",
-                {
-                  className: `${FIELD_CLASS} flex-1`,
-                  "aria-label": t("otherLanguage"),
-                  placeholder: t("otherLanguagePlaceholder"),
-                  maxLength: 80,
-                  value: languageChoice(draft.selection.targetLanguage) === OTHER_LANGUAGE ? draft.selection.targetLanguage : "",
-                  onChange: (event) => setDraft({ ...draft, selection: { ...draft.selection, targetLanguage: event.currentTarget.value } })
-                }
-              )
-            ] })
+              }
+            )
           ] }),
-          /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "flex min-h-10 items-center gap-2 text-sm", children: [
-            /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: draft.selection.compatibilityCopy, onChange: (event) => setDraft({ ...draft, selection: { ...draft.selection, compatibilityCopy: event.currentTarget.checked } }) }),
-            t("compatibilityCopy")
-          ] }),
-          /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "flex min-h-10 items-center gap-2 text-sm", children: [
-            /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: draft.selection.model !== void 0, onChange: (event) => setSelectionModelEnabled(event.currentTarget.checked) }),
-            t("customModel")
-          ] }),
-          draft.selection.model === void 0 ? /* @__PURE__ */ jsxRuntime.jsx("p", { className: "text-sm text-[var(--dsw-alias-label-tertiary)]", children: t("followSession") }) : /* @__PURE__ */ jsxRuntime.jsx(ModelFields, { value: draft.selection.model, disabled: busy, t, catalog, onChange: (value) => setModel("selection", value) })
+          /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t("compatibilityCopy"), description: t("compatibilityCopyDescription"), children: /* @__PURE__ */ jsxRuntime.jsx(dshClientUiPrimitives.Switch, { checked: draft.selection.compatibilityCopy, disabled: busy, label: t("compatibilityCopy"), onChange: (next) => setDraft({ ...draft, selection: { ...draft.selection, compatibilityCopy: next } }) }) }),
+          /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t("customModel"), description: draft.selection.model === void 0 ? t("followSession") : t("customModelDescription"), children: /* @__PURE__ */ jsxRuntime.jsx(dshClientUiPrimitives.Switch, { checked: draft.selection.model !== void 0, disabled: busy, label: t("customModel"), onChange: setSelectionModelEnabled }) }),
+          draft.selection.model !== void 0 && /* @__PURE__ */ jsxRuntime.jsx(ModelRows, { value: draft.selection.model, disabled: busy, t, catalog, onChange: (value) => setModel("selection", value) })
         ] }),
         tab === "floating" && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex flex-wrap items-center gap-3", children: [
-            (avatar ?? defaultAvatar) === void 0 ? /* @__PURE__ */ jsxRuntime.jsx("span", { "aria-hidden": "true", className: "size-12 rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)]" }) : /* @__PURE__ */ jsxRuntime.jsx("img", { src: avatar ?? defaultAvatar, alt: t("avatar"), className: "size-12 rounded border border-[var(--dsw-alias-border-l2)] object-cover" }),
-            avatar === void 0 && defaultAvatar !== void 0 && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-xs text-[var(--dsw-alias-label-tertiary)]", children: t("defaultAvatar") }),
-            /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "cursor-pointer rounded border border-[var(--dsw-alias-border-l2)] px-3 py-2 text-sm focus-within:ring-2 focus-within:ring-[var(--dsw-alias-brand-primary)]", children: [
+          /* @__PURE__ */ jsxRuntime.jsxs(Row, { title: t("avatar"), description: avatar === void 0 && defaultAvatar !== void 0 ? `${t("avatarDescription")} ${t("defaultAvatar")}` : t("avatarDescription"), children: [
+            (avatar ?? defaultAvatar) === void 0 ? /* @__PURE__ */ jsxRuntime.jsx("span", { "aria-hidden": "true", className: "size-9 rounded-[var(--dsw-radius-md)] bg-[var(--dsw-alias-bg-module-platform)]" }) : /* @__PURE__ */ jsxRuntime.jsx("img", { src: avatar ?? defaultAvatar, alt: t("avatar"), className: "size-9 rounded-[var(--dsw-radius-md)] object-cover" }),
+            /* @__PURE__ */ jsxRuntime.jsxs("label", { className: `${BUTTON_CLASS} focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[var(--dsw-alias-state-business-primary)]`, children: [
               t("chooseAvatar"),
               /* @__PURE__ */ jsxRuntime.jsx("input", { className: "sr-only", type: "file", accept: "image/gif,image/png,image/webp", onChange: uploadAvatar })
             ] }),
-            /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: "rounded border border-[var(--dsw-alias-border-l2)] px-3 py-2 text-sm", onClick: () => {
+            /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: BUTTON_CLASS, onClick: () => {
               void services.restoreAvatar().then((result) => {
                 if (result.ok) void load();
               });
             }, children: t("restoreAvatar") })
           ] }),
-          /* @__PURE__ */ jsxRuntime.jsx("h3", { className: "text-sm font-medium", children: t("conversationModel") }),
-          /* @__PURE__ */ jsxRuntime.jsx(ModelFields, { value: draft.floatingBall.conversationModel, disabled: busy, t, catalog, onChange: (value) => setModel("conversationModel", value) }),
-          /* @__PURE__ */ jsxRuntime.jsx("h3", { className: "text-sm font-medium", children: t("backgroundModel") }),
-          /* @__PURE__ */ jsxRuntime.jsx(ModelFields, { value: draft.floatingBall.backgroundModel, disabled: busy, t, catalog, onChange: (value) => setModel("backgroundModel", value) }),
-          /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "grid gap-1 text-sm", children: [
-            /* @__PURE__ */ jsxRuntime.jsx("span", { children: t("permissionPreset") }),
-            /* @__PURE__ */ jsxRuntime.jsxs("select", { className: "rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)] px-3 py-2", value: draft.floatingBall.permissionPreset, onChange: (event) => setDraft({ ...draft, floatingBall: { ...draft.floatingBall, permissionPreset: event.currentTarget.value } }), children: [
-              /* @__PURE__ */ jsxRuntime.jsx("option", { value: "read-only", children: "read-only" }),
-              /* @__PURE__ */ jsxRuntime.jsx("option", { value: "workspace-write", children: "workspace-write" }),
-              /* @__PURE__ */ jsxRuntime.jsx("option", { value: "danger-full-access", children: "danger-full-access" })
-            ] })
-          ] }),
-          /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "grid gap-1 text-sm", children: [
-            /* @__PURE__ */ jsxRuntime.jsx("span", { children: t("coordinateMode") }),
-            /* @__PURE__ */ jsxRuntime.jsxs("select", { className: "rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)] px-3 py-2", value: draft.floatingBall.coordinateMode, onChange: (event) => setDraft({ ...draft, floatingBall: { ...draft.floatingBall, coordinateMode: event.currentTarget.value } }), children: [
-              /* @__PURE__ */ jsxRuntime.jsx("option", { value: "millifraction", children: "millifraction" }),
-              /* @__PURE__ */ jsxRuntime.jsx("option", { value: "pixel", children: "pixel" })
-            ] })
-          ] }),
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "grid gap-2", children: [
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex flex-wrap items-center justify-between gap-2", children: [
-              /* @__PURE__ */ jsxRuntime.jsx("h3", { className: "text-sm font-medium", children: t("systemPermissions") }),
-              /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: "text-sm text-[var(--dsw-alias-brand-primary)]", onClick: () => {
-                void checkPermissions();
-              }, children: t("check") })
-            ] }),
-            ["screen", "accessibility"].map((right) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex flex-wrap items-center justify-between gap-2 text-sm", children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { children: t(right === "screen" ? "screenPermission" : "accessibilityPermission") }),
-              /* @__PURE__ */ jsxRuntime.jsx("span", { children: permissions?.[right] === true ? t("permissionGranted") : permissions?.[right] === false ? t("permissionDenied") : t("permissionUnknown") }),
-              /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: "text-[var(--dsw-alias-brand-primary)]", onClick: () => {
-                void services.openSystemPermission(right).then(() => {
-                  void checkPermissions();
-                });
-              }, children: t("openSettings") })
-            ] }, right))
-          ] })
+          /* @__PURE__ */ jsxRuntime.jsx(ModelRows, { heading: t("conversationModel"), description: t("conversationModelDescription"), value: draft.floatingBall.conversationModel, disabled: busy, t, catalog, onChange: (value) => setModel("conversationModel", value) }),
+          /* @__PURE__ */ jsxRuntime.jsx(ModelRows, { heading: t("backgroundModel"), description: t("backgroundModelDescription"), value: draft.floatingBall.backgroundModel, disabled: busy, t, catalog, onChange: (value) => setModel("backgroundModel", value) }),
+          /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t("permissionPreset"), description: t("permissionPresetDescription"), children: /* @__PURE__ */ jsxRuntime.jsx(
+            Select,
+            {
+              label: t("permissionPreset"),
+              value: draft.floatingBall.permissionPreset,
+              disabled: busy,
+              options: [{ id: "read-only", label: "read-only" }, { id: "workspace-write", label: "workspace-write" }, { id: "danger-full-access", label: "danger-full-access" }],
+              onChange: (value) => setDraft({ ...draft, floatingBall: { ...draft.floatingBall, permissionPreset: value } })
+            }
+          ) }),
+          /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t("coordinateMode"), description: t("coordinateModeDescription"), children: /* @__PURE__ */ jsxRuntime.jsx(
+            Select,
+            {
+              label: t("coordinateMode"),
+              value: draft.floatingBall.coordinateMode,
+              disabled: busy,
+              options: [{ id: "millifraction", label: "millifraction" }, { id: "pixel", label: "pixel" }],
+              onChange: (value) => setDraft({ ...draft, floatingBall: { ...draft.floatingBall, coordinateMode: value } })
+            }
+          ) }),
+          /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t("systemPermissions"), description: t("systemPermissionsDescription"), children: /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: BUTTON_CLASS, onClick: () => {
+            void checkPermissions();
+          }, children: t("check") }) }),
+          ["screen", "accessibility"].map((right) => /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t(right === "screen" ? "screenPermission" : "accessibilityPermission"), description: permissionText(right), children: /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: BUTTON_CLASS, onClick: () => {
+            void services.openSystemPermission(right).then(() => {
+              void checkPermissions();
+            });
+          }, children: t("openSettings") }) }, right))
         ] }),
-        (tab === "screenshot" || tab === "recording") && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "grid gap-3", children: [
-          (tab === "screenshot" ? ["screenshot.shortcut", "screenshot.longShortcut"] : ["recording.shortcut"]).map((field) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "grid gap-1", children: [
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-sm text-[var(--dsw-alias-label-tertiary)]", children: t(field === "screenshot.longShortcut" ? "longShortcut" : "shortcut") }),
-            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex flex-wrap items-center gap-2", children: [
-              /* @__PURE__ */ jsxRuntime.jsx("kbd", { className: "rounded border border-[var(--dsw-alias-border-l2)] px-2 py-1 text-sm", children: acceleratorLabel(shortcutValue(field), snapshot?.platform) }),
-              /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: "rounded border border-[var(--dsw-alias-border-l2)] px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--dsw-alias-brand-primary)]", onClick: () => setCapturing(field), children: capturing === field ? t("recordingShortcut") : t("recordShortcut") }),
-              shortcutValue(field) !== "" && /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: "px-2 py-2 text-sm text-[var(--dsw-alias-label-tertiary)] hover:text-[var(--dsw-alias-label-primary)]", onClick: () => setShortcut(field, ""), children: t("clearShortcut") }),
-              /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: "px-2 py-2 text-sm text-[var(--dsw-alias-brand-primary)] disabled:opacity-50", disabled: active?.phase !== "active", onClick: () => {
-                void services.openCapture(field === "recording.shortcut" ? "video" : field === "screenshot.longShortcut" ? "long" : "image");
-              }, children: t("tryNow") })
-            ] })
-          ] }, field)),
-          /* @__PURE__ */ jsxRuntime.jsx("p", { className: "text-xs text-[var(--dsw-alias-label-tertiary)]", children: t("globalShortcutHint") })
+        tab === "screenshot" && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+          shortcutRow("screenshot.shortcut"),
+          shortcutRow("screenshot.longShortcut"),
+          /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t("visionTitle"), description: /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+            t("visionDescription"),
+            /* @__PURE__ */ jsxRuntime.jsx("br", {}),
+            t(snapshot?.vision.state === "ready" ? "visionStateReady" : snapshot?.vision.state === "missing" ? "visionStateMissing" : snapshot?.vision.state === "disabled" ? "visionStateDisabled" : snapshot?.vision.state === "tool-off" ? "visionStateToolOff" : "visionStateUnknown")
+          ] }), children: snapshot?.vision.state !== "ready" && snapshot?.vision.state !== "tool-off" && /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", disabled: installing, className: PRIMARY_BUTTON_CLASS, onClick: () => {
+            void installVision();
+          }, children: installing ? t("visionInstalling") : snapshot?.vision.state === "disabled" ? t("visionEnable") : t("visionInstall") }) })
         ] }),
-        tab === "screenshot" && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "grid gap-2 rounded border border-[var(--dsw-alias-border-l2)] p-3", children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex flex-wrap items-center justify-between gap-2", children: [
-            /* @__PURE__ */ jsxRuntime.jsx("h3", { className: "text-sm font-medium", children: t("visionTitle") }),
-            /* @__PURE__ */ jsxRuntime.jsx("span", { className: snapshot?.vision.state === "ready" ? "text-xs text-[var(--dsw-alias-state-success-primary)]" : "text-xs text-[var(--dsw-alias-label-tertiary)]", children: t(snapshot?.vision.state === "ready" ? "visionStateReady" : snapshot?.vision.state === "missing" ? "visionStateMissing" : snapshot?.vision.state === "disabled" ? "visionStateDisabled" : snapshot?.vision.state === "tool-off" ? "visionStateToolOff" : "visionStateUnknown") })
-          ] }),
-          /* @__PURE__ */ jsxRuntime.jsx("p", { className: "text-sm text-[var(--dsw-alias-label-tertiary)]", children: t("visionDescription") }),
-          snapshot?.vision.state !== "ready" && snapshot?.vision.state !== "tool-off" && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex flex-wrap items-center gap-2", children: [
-            /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", disabled: installing, className: "rounded bg-[var(--dsw-alias-brand-primary)] px-3 py-2 text-sm text-white disabled:opacity-50", onClick: () => {
-              void installVision();
-            }, children: installing ? t("visionInstalling") : snapshot?.vision.state === "disabled" ? t("visionEnable") : t("visionInstall") }),
-            /* @__PURE__ */ jsxRuntime.jsx("code", { className: "text-xs text-[var(--dsw-alias-label-tertiary)]", children: "dsh plugin add dsh-vision-router" })
-          ] })
-        ] }),
-        tab === "recording" && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "grid gap-3", children: [
-          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "grid gap-3 sm:grid-cols-2", children: [
-            /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "grid gap-1 text-sm", children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { children: t("recordingFormat") }),
-              /* @__PURE__ */ jsxRuntime.jsxs("select", { className: "rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)] px-3 py-2", value: draft.recording.format, onChange: (event) => setDraft({ ...draft, recording: { ...draft.recording, format: event.currentTarget.value } }), children: [
-                /* @__PURE__ */ jsxRuntime.jsx("option", { value: "mp4", children: "MP4" }),
-                /* @__PURE__ */ jsxRuntime.jsx("option", { value: "gif", children: "GIF" }),
-                /* @__PURE__ */ jsxRuntime.jsx("option", { value: "webm", children: "WebM" })
-              ] })
-            ] }),
-            /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "grid gap-1 text-sm", children: [
-              /* @__PURE__ */ jsxRuntime.jsx("span", { children: t("recordingQuality") }),
-              /* @__PURE__ */ jsxRuntime.jsxs("select", { className: "rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)] px-3 py-2", value: draft.recording.quality, onChange: (event) => setDraft({ ...draft, recording: { ...draft.recording, quality: event.currentTarget.value } }), children: [
-                /* @__PURE__ */ jsxRuntime.jsx("option", { value: "sd", children: t("qualitySd") }),
-                /* @__PURE__ */ jsxRuntime.jsx("option", { value: "hd", children: t("qualityHd") }),
-                /* @__PURE__ */ jsxRuntime.jsx("option", { value: "original", children: t("qualityOriginal") })
-              ] })
-            ] })
-          ] }),
-          ["systemAudio", "microphone", "knowledgeGraph"].map((field) => /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "flex min-h-10 items-center gap-2 text-sm", children: [
-            /* @__PURE__ */ jsxRuntime.jsx("input", { type: "checkbox", checked: draft.recording[field], disabled: field === "systemAudio" && snapshot?.platform === "linux", onChange: (event) => setDraft({ ...draft, recording: { ...draft.recording, [field]: event.currentTarget.checked } }) }),
-            t(field === "systemAudio" ? "recordingSystemAudio" : field === "microphone" ? "recordingMicrophone" : "recordingGraph")
-          ] }, field)),
-          /* @__PURE__ */ jsxRuntime.jsx("p", { className: "text-xs text-[var(--dsw-alias-label-tertiary)]", children: t("recordingGraphHint") })
+        tab === "recording" && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+          shortcutRow("recording.shortcut"),
+          /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t("recordingFormat"), description: t("recordingFormatDescription"), children: /* @__PURE__ */ jsxRuntime.jsx(
+            Select,
+            {
+              label: t("recordingFormat"),
+              value: draft.recording.format,
+              disabled: busy,
+              options: [{ id: "mp4", label: "MP4" }, { id: "gif", label: "GIF" }, { id: "webm", label: "WebM" }],
+              onChange: (value) => setDraft({ ...draft, recording: { ...draft.recording, format: value } })
+            }
+          ) }),
+          /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t("recordingQuality"), description: t("recordingQualityDescription"), children: /* @__PURE__ */ jsxRuntime.jsx(
+            Select,
+            {
+              label: t("recordingQuality"),
+              value: draft.recording.quality,
+              disabled: busy,
+              options: [{ id: "sd", label: t("qualitySd") }, { id: "hd", label: t("qualityHd") }, { id: "original", label: t("qualityOriginal") }],
+              onChange: (value) => setDraft({ ...draft, recording: { ...draft.recording, quality: value } })
+            }
+          ) }),
+          ["systemAudio", "microphone", "knowledgeGraph"].map((field) => {
+            const label = t(field === "systemAudio" ? "recordingSystemAudio" : field === "microphone" ? "recordingMicrophone" : "recordingGraph");
+            return /* @__PURE__ */ jsxRuntime.jsx(Row, { title: label, description: field === "knowledgeGraph" ? t("recordingGraphHint") : void 0, children: /* @__PURE__ */ jsxRuntime.jsx(
+              dshClientUiPrimitives.Switch,
+              {
+                checked: draft.recording[field],
+                disabled: busy || field === "systemAudio" && snapshot?.platform === "linux",
+                label,
+                onChange: (next) => setDraft({ ...draft, recording: { ...draft.recording, [field]: next } })
+              }
+            ) }, field);
+          })
         ] })
       ] }),
-      message && /* @__PURE__ */ jsxRuntime.jsx("p", { role: "status", className: message === t("saved") ? "text-sm text-[var(--dsw-alias-state-success-primary)]" : "text-sm text-[var(--dsw-alias-state-error-primary)]", children: message }),
-      /* @__PURE__ */ jsxRuntime.jsxs("footer", { className: "flex flex-wrap justify-end gap-2 border-t border-[var(--dsw-alias-border-l2)] pt-3", children: [
-        /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", disabled: busy, className: "rounded border border-[var(--dsw-alias-border-l2)] px-3 py-2 text-sm disabled:opacity-50", onClick: () => {
+      message && /* @__PURE__ */ jsxRuntime.jsx("p", { role: "status", className: message === t("saved") ? "m-0 text-[13px] text-[var(--dsw-alias-state-success-primary)]" : "m-0 text-[13px] text-[var(--dsw-alias-state-error-primary)]", children: message }),
+      /* @__PURE__ */ jsxRuntime.jsxs("footer", { className: "flex flex-wrap justify-end gap-2 border-t-[0.5px] border-[var(--dsw-alias-border-l2)] pt-4", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", disabled: busy, className: BUTTON_CLASS, onClick: () => {
           void load();
         }, children: t("check") }),
-        pending && /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", disabled: busy, className: "rounded border border-[var(--dsw-alias-border-l2)] px-3 py-2 text-sm disabled:opacity-50", onClick: () => {
+        pending && /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", disabled: busy, className: BUTTON_CLASS, onClick: () => {
           void retry();
         }, children: t("retry") }),
-        /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", disabled: busy, className: "rounded bg-[var(--dsw-alias-brand-primary)] px-3 py-2 text-sm text-white disabled:opacity-50", onClick: () => {
+        /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", disabled: busy, className: PRIMARY_BUTTON_CLASS, onClick: () => {
           void save();
         }, children: busy ? t("saving") : t("save") })
       ] })
@@ -514,6 +545,23 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     floating: "Floating assistant",
     screenshot: "Screenshot",
     recording: "Screen recording",
+    intro: "Selection toolbar, floating assistant, screenshot and screen recording that work across the whole system.",
+    enableSelection: "Enable selection toolbar",
+    enableFloating: "Enable floating assistant",
+    enableScreenshot: "Enable screenshot",
+    enableRecording: "Enable screen recording",
+    languageDescription: "Language used by translate and explain on selected text.",
+    compatibilityCopyDescription: "Also writes the selection to the clipboard, for apps whose selection cannot be read directly.",
+    customModelDescription: "Use the model below for the selection toolbar instead of the current session model.",
+    avatarDescription: "Image shown on the floating ball. GIF, PNG or WebP.",
+    conversationModelDescription: "Model used when chatting with the floating assistant.",
+    backgroundModelDescription: "Model used for background work such as recognizing and summarizing screenshots.",
+    permissionPresetDescription: "Tool permissions for floating assistant sessions.",
+    coordinateModeDescription: "How screen positions are expressed when the assistant operates the screen.",
+    systemPermissionsDescription: "Operating the screen needs these system permissions.",
+    shortcutDescription: "Works system-wide, even when DSH is in the background. Save to apply.",
+    recordingFormatDescription: "Format selected when a new recording starts.",
+    recordingQualityDescription: "Resolution selected when a new recording starts.",
     enabled: "Enabled",
     language: "Target language",
     compatibilityCopy: "Copy selected text to clipboard",
@@ -536,6 +584,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     openSettings: "Open system settings",
     shortcut: "Shortcut",
     recordShortcut: "Record shortcut",
+    cancelRecording: "Cancel",
     recordingShortcut: "Press a key combination. Escape cancels.",
     save: "Save",
     saving: "Saving…",
@@ -596,6 +645,23 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     floating: "悬浮球",
     screenshot: "截图",
     recording: "录屏",
+    intro: "在整个系统里使用的划词工具栏、悬浮球、截图与录屏。",
+    enableSelection: "启用划词工具栏",
+    enableFloating: "启用悬浮球",
+    enableScreenshot: "启用截图",
+    enableRecording: "启用录屏",
+    languageDescription: "划词翻译、解释时使用的目标语言。",
+    compatibilityCopyDescription: "同时把选中的文字写入剪贴板，兼容无法直接读取选区的应用。",
+    customModelDescription: "划词工具栏改用下面选定的模型，不跟随当前会话。",
+    avatarDescription: "悬浮球上显示的图片，支持 GIF、PNG、WebP。",
+    conversationModelDescription: "与悬浮球对话时使用的模型。",
+    backgroundModelDescription: "识别、总结截图等后台任务使用的模型。",
+    permissionPresetDescription: "悬浮球会话可使用的工具权限。",
+    coordinateModeDescription: "悬浮球操作屏幕时表示位置的方式。",
+    systemPermissionsDescription: "悬浮球操作屏幕需要以下系统授权。",
+    shortcutDescription: "系统级快捷键，DSH 在后台时同样可以唤起。保存后生效。",
+    recordingFormatDescription: "开始新录制时默认选中的格式。",
+    recordingQualityDescription: "开始新录制时默认选中的清晰度。",
     enabled: "启用",
     language: "目标语言",
     compatibilityCopy: "将所选文本复制到剪贴板",
@@ -618,6 +684,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     openSettings: "打开系统设置",
     shortcut: "快捷键",
     recordShortcut: "录制快捷键",
+    cancelRecording: "取消",
     recordingShortcut: "按下组合键，按 Esc 取消。",
     save: "保存",
     saving: "正在保存…",
@@ -781,6 +848,18 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
       max-width: 96rem;
     }
   }
+  .m-0 {
+    margin: 0px;
+  }
+  .mt-0 {
+    margin-top: 0px;
+  }
+  .mt-0\\.5 {
+    margin-top: calc(var(--spacing) * 0.5);
+  }
+  .ml-auto {
+    margin-left: auto;
+  }
   .block {
     display: block;
   }
@@ -802,6 +881,9 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .inline-block {
     display: inline-block;
   }
+  .inline-flex {
+    display: inline-flex;
+  }
   .table {
     display: table;
   }
@@ -812,9 +894,16 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     width: var(--spacing);
     height: var(--spacing);
   }
+  .size-9 {
+    width: calc(var(--spacing) * 9);
+    height: calc(var(--spacing) * 9);
+  }
   .size-12 {
     width: calc(var(--spacing) * 12);
     height: calc(var(--spacing) * 12);
+  }
+  .h-9 {
+    height: calc(var(--spacing) * 9);
   }
   .h-40 {
     height: calc(var(--spacing) * 40);
@@ -828,6 +917,12 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .min-h-10 {
     min-height: calc(var(--spacing) * 10);
   }
+  .w-36 {
+    width: calc(var(--spacing) * 36);
+  }
+  .w-40 {
+    width: calc(var(--spacing) * 40);
+  }
   .w-fit {
     width: fit-content;
   }
@@ -837,11 +932,26 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .min-w-0 {
     min-width: 0px;
   }
+  .min-w-\\[58px\\] {
+    min-width: 58px;
+  }
+  .min-w-\\[220px\\] {
+    min-width: 220px;
+  }
   .flex-1 {
     flex: 1;
   }
+  .flex-none {
+    flex: none;
+  }
+  .flex-grow {
+    flex-grow: 1;
+  }
   .grow {
     flex-grow: 1;
+  }
+  .basis-\\[220px\\] {
+    flex-basis: 220px;
   }
   .basis-full {
     flex-basis: 100%;
@@ -858,14 +968,23 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .resize {
     resize: both;
   }
+  .flex-col {
+    flex-direction: column;
+  }
   .flex-wrap {
     flex-wrap: wrap;
   }
   .items-center {
     align-items: center;
   }
+  .items-end {
+    align-items: flex-end;
+  }
   .justify-between {
     justify-content: space-between;
+  }
+  .justify-center {
+    justify-content: center;
   }
   .justify-end {
     justify-content: flex-end;
@@ -882,16 +1001,51 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .gap-4 {
     gap: calc(var(--spacing) * 4);
   }
+  .gap-6 {
+    gap: calc(var(--spacing) * 6);
+  }
+  .gap-x-6 {
+    column-gap: calc(var(--spacing) * 6);
+  }
+  .gap-x-\\[22px\\] {
+    column-gap: 22px;
+  }
+  .gap-y-3 {
+    row-gap: calc(var(--spacing) * 3);
+  }
+  .truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .overflow-x-auto {
+    overflow-x: auto;
+  }
   .rounded {
     border-radius: 0.25rem;
+  }
+  .rounded-\\[var\\(--dsw-radius-md\\)\\] {
+    border-radius: var(--dsw-radius-md);
   }
   .border {
     border-style: var(--tw-border-style);
     border-width: 1px;
   }
+  .border-0 {
+    border-style: var(--tw-border-style);
+    border-width: 0px;
+  }
+  .border-\\[0\\.5px\\] {
+    border-style: var(--tw-border-style);
+    border-width: 0.5px;
+  }
   .border-t {
     border-top-style: var(--tw-border-style);
     border-top-width: 1px;
+  }
+  .border-t-\\[0\\.5px\\] {
+    border-top-style: var(--tw-border-style);
+    border-top-width: 0.5px;
   }
   .border-b {
     border-bottom-style: var(--tw-border-style);
@@ -901,11 +1055,19 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     border-bottom-style: var(--tw-border-style);
     border-bottom-width: 2px;
   }
-  .border-\\[var\\(--border-subtle\\)\\] {
-    border-color: var(--border-subtle);
+  .border-b-\\[0\\.5px\\] {
+    border-bottom-style: var(--tw-border-style);
+    border-bottom-width: 0.5px;
+  }
+  .border-solid {
+    --tw-border-style: solid;
+    border-style: solid;
   }
   .border-\\[var\\(--dsw-alias-border-l2\\)\\] {
     border-color: var(--dsw-alias-border-l2);
+  }
+  .border-\\[var\\(--dsw-alias-border-l3\\)\\] {
+    border-color: var(--dsw-alias-border-l3);
   }
   .border-transparent {
     border-color: transparent;
@@ -913,8 +1075,11 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .bg-\\[var\\(--dsw-alias-bg-module-platform\\)\\] {
     background-color: var(--dsw-alias-bg-module-platform);
   }
-  .bg-\\[var\\(--dsw-alias-brand-primary\\)\\] {
-    background-color: var(--dsw-alias-brand-primary);
+  .bg-\\[var\\(--dsw-alias-button-primary-fill\\)\\] {
+    background-color: var(--dsw-alias-button-primary-fill);
+  }
+  .bg-transparent {
+    background-color: transparent;
   }
   .object-cover {
     object-fit: cover;
@@ -928,21 +1093,52 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .px-3 {
     padding-inline: calc(var(--spacing) * 3);
   }
+  .px-3\\.5 {
+    padding-inline: calc(var(--spacing) * 3.5);
+  }
+  .px-px {
+    padding-inline: 1px;
+  }
   .py-1 {
     padding-block: var(--spacing);
-  }
-  .py-1\\.5 {
-    padding-block: calc(var(--spacing) * 1.5);
   }
   .py-2 {
     padding-block: calc(var(--spacing) * 2);
   }
+  .py-4 {
+    padding-block: calc(var(--spacing) * 4);
+  }
+  .pt-0 {
+    padding-top: 0px;
+  }
+  .pt-0\\.5 {
+    padding-top: calc(var(--spacing) * 0.5);
+  }
   .pt-3 {
     padding-top: calc(var(--spacing) * 3);
+  }
+  .pt-4 {
+    padding-top: calc(var(--spacing) * 4);
+  }
+  .pt-\\[7px\\] {
+    padding-top: 7px;
+  }
+  .pr-0 {
+    padding-right: 0px;
+  }
+  .pb-\\[9px\\] {
+    padding-bottom: 9px;
+  }
+  .font-\\[inherit\\] {
+    font-family: inherit;
   }
   .text-base {
     font-size: var(--text-base);
     line-height: var(--tw-leading, var(--text-base--line-height));
+  }
+  .text-lg {
+    font-size: var(--text-lg);
+    line-height: var(--tw-leading, var(--text-lg--line-height));
   }
   .text-sm {
     font-size: var(--text-sm);
@@ -951,6 +1147,21 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .text-xs {
     font-size: var(--text-xs);
     line-height: var(--tw-leading, var(--text-xs--line-height));
+  }
+  .text-\\[13px\\] {
+    font-size: 13px;
+  }
+  .leading-5 {
+    --tw-leading: calc(var(--spacing) * 5);
+    line-height: calc(var(--spacing) * 5);
+  }
+  .leading-\\[18px\\] {
+    --tw-leading: 18px;
+    line-height: 18px;
+  }
+  .leading-\\[22px\\] {
+    --tw-leading: 22px;
+    line-height: 22px;
   }
   .font-medium {
     --tw-font-weight: var(--font-weight-medium);
@@ -963,11 +1174,14 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .text-wrap {
     text-wrap: wrap;
   }
-  .text-\\[var\\(--dsw-alias-brand-primary\\)\\] {
-    color: var(--dsw-alias-brand-primary);
+  .whitespace-nowrap {
+    white-space: nowrap;
   }
   .text-\\[var\\(--dsw-alias-label-primary\\)\\] {
     color: var(--dsw-alias-label-primary);
+  }
+  .text-\\[var\\(--dsw-alias-label-primary-foreground\\)\\] {
+    color: var(--dsw-alias-label-primary-foreground);
   }
   .text-\\[var\\(--dsw-alias-label-tertiary\\)\\] {
     color: var(--dsw-alias-label-tertiary);
@@ -1002,6 +1216,9 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   }
   .line-through {
     text-decoration-line: line-through;
+  }
+  .no-underline {
+    text-decoration-line: none;
   }
   .overline {
     text-decoration-line: overline;
@@ -1054,17 +1271,27 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     --tw-outline-style: none;
     outline-style: none;
   }
-  .focus-within\\:ring-2:focus-within {
-    --tw-ring-shadow: var(--tw-ring-inset, ) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color, currentcolor);
-    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+  .last\\:border-b-0:last-child {
+    border-bottom-style: var(--tw-border-style);
+    border-bottom-width: 0px;
   }
-  .focus-within\\:ring-\\[var\\(--dsw-alias-brand-primary\\)\\]:focus-within {
-    --tw-ring-color: var(--dsw-alias-brand-primary);
+  .focus-within\\:outline-2:focus-within {
+    outline-style: var(--tw-outline-style);
+    outline-width: 2px;
+  }
+  .focus-within\\:outline-offset-2:focus-within {
+    outline-offset: 2px;
+  }
+  .focus-within\\:outline-\\[var\\(--dsw-alias-state-business-primary\\)\\]:focus-within {
+    outline-color: var(--dsw-alias-state-business-primary);
   }
   @media (hover: hover) {
     .hover\\:text-\\[var\\(--dsw-alias-label-primary\\)\\]:hover {
       color: var(--dsw-alias-label-primary);
     }
+  }
+  .focus-visible\\:rounded-\\[2px\\]:focus-visible {
+    border-radius: 2px;
   }
   .focus-visible\\:ring-2:focus-visible {
     --tw-ring-shadow: var(--tw-ring-inset, ) 0 0 0 calc(2px + var(--tw-ring-offset-width)) var(--tw-ring-color, currentcolor);
@@ -1073,16 +1300,26 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .focus-visible\\:ring-\\[var\\(--dsw-alias-brand-primary\\)\\]:focus-visible {
     --tw-ring-color: var(--dsw-alias-brand-primary);
   }
-  .focus-visible\\:outline:focus-visible {
-    outline-style: var(--tw-outline-style);
-    outline-width: 1px;
-  }
   .focus-visible\\:outline-2:focus-visible {
     outline-style: var(--tw-outline-style);
     outline-width: 2px;
   }
-  .focus-visible\\:outline-\\[var\\(--dsw-alias-brand-primary\\)\\]:focus-visible {
-    outline-color: var(--dsw-alias-brand-primary);
+  .focus-visible\\:outline-offset-2:focus-visible {
+    outline-offset: 2px;
+  }
+  .focus-visible\\:outline-\\[var\\(--dsw-alias-state-business-primary\\)\\]:focus-visible {
+    outline-color: var(--dsw-alias-state-business-primary);
+  }
+  @media (hover: hover) {
+    .hover\\:enabled\\:bg-\\[var\\(--dsw-alias-button-primary-hover\\)\\]:hover:enabled {
+      background-color: var(--dsw-alias-button-primary-hover);
+    }
+    .hover\\:enabled\\:bg-\\[var\\(--dsw-alias-interactive-bg-hover\\)\\]:hover:enabled {
+      background-color: var(--dsw-alias-interactive-bg-hover);
+    }
+  }
+  .disabled\\:cursor-default:disabled {
+    cursor: default;
   }
   .disabled\\:opacity-50:disabled {
     opacity: 50%;
@@ -1090,18 +1327,41 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .disabled\\:opacity-60:disabled {
     opacity: 60%;
   }
-  .aria-selected\\:border-\\[var\\(--dsw-alias-brand-primary\\)\\][aria-selected="true"] {
-    border-color: var(--dsw-alias-brand-primary);
-  }
-  .aria-selected\\:text-\\[var\\(--dsw-alias-label-primary\\)\\][aria-selected="true"] {
+  .data-\\[active\\=true\\]\\:text-\\[var\\(--dsw-alias-label-primary\\)\\][data-active="true"] {
     color: var(--dsw-alias-label-primary);
   }
+  .data-\\[active\\=true\\]\\:after\\:absolute[data-active="true"]::after {
+    content: var(--tw-content);
+    position: absolute;
+  }
+  .data-\\[active\\=true\\]\\:after\\:inset-x-0[data-active="true"]::after {
+    content: var(--tw-content);
+    inset-inline: 0px;
+  }
+  .data-\\[active\\=true\\]\\:after\\:-bottom-px[data-active="true"]::after {
+    content: var(--tw-content);
+    bottom: -1px;
+  }
+  .data-\\[active\\=true\\]\\:after\\:h-0\\.5[data-active="true"]::after {
+    content: var(--tw-content);
+    height: calc(var(--spacing) * 0.5);
+  }
+  .data-\\[active\\=true\\]\\:after\\:rounded-t-\\[2px\\][data-active="true"]::after {
+    content: var(--tw-content);
+    border-top-left-radius: 2px;
+    border-top-right-radius: 2px;
+  }
+  .data-\\[active\\=true\\]\\:after\\:bg-\\[var\\(--dsw-alias-label-primary\\)\\][data-active="true"]::after {
+    content: var(--tw-content);
+    background-color: var(--dsw-alias-label-primary);
+  }
+  .data-\\[active\\=true\\]\\:after\\:content-\\[\\'\\'\\][data-active="true"]::after {
+    --tw-content: '';
+    content: var(--tw-content);
+  }
   @media (width >= 40rem) {
-    .sm\\:grid-cols-2 {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-    .sm\\:grid-cols-3 {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+    .sm\\:pr-12 {
+      padding-right: calc(var(--spacing) * 12);
     }
   }
 }
@@ -1129,6 +1389,10 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   syntax: "*";
   inherits: false;
   initial-value: solid;
+}
+@property --tw-leading {
+  syntax: "*";
+  inherits: false;
 }
 @property --tw-font-weight {
   syntax: "*";
@@ -1281,6 +1545,11 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   inherits: false;
   initial-value: solid;
 }
+@property --tw-content {
+  syntax: "*";
+  initial-value: "";
+  inherits: false;
+}
 @layer properties {
   @supports ((-webkit-hyphens: none) and (not (margin-trim: block))) or ((-moz-orient: inline) and (not (color:rgb(from red r g b)))) {
     *, ::before, ::after, ::backdrop {
@@ -1290,6 +1559,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
       --tw-skew-x: initial;
       --tw-skew-y: initial;
       --tw-border-style: solid;
+      --tw-leading: initial;
       --tw-font-weight: initial;
       --tw-ordinal: initial;
       --tw-slashed-zero: initial;
@@ -1325,6 +1595,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
       --tw-drop-shadow-size: initial;
       --tw-ease: initial;
       --tw-outline-style: solid;
+      --tw-content: "";
     }
   }
 }\r

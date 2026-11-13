@@ -4,6 +4,7 @@ import type { ChangeEvent, ReactNode } from 'react'
 import type { DesktopModelSelection, DesktopToolsConfig, DesktopToolsSnapshot, DesktopToolsUpdateResult } from '../apps/desktop/src/desktop-tools-types.ts'
 import type { en } from './locales.ts'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import { IconChevronDownOutlineRegular, Menu, Switch, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 
 type Copy = (key: keyof typeof en) => string
 type RemoteResult<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: unknown }
@@ -110,26 +111,80 @@ function applicationMatches(snapshot: DesktopToolsSnapshot): boolean {
   })
 }
 
-const FIELD_CLASS = 'min-w-0 rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)] px-3 py-2 text-[var(--dsw-alias-label-primary)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--dsw-alias-brand-primary)] disabled:opacity-60'
+/*
+ * 设置面板外观对照 DSH 自带设置页：
+ * - 行：「通用设置」的设置行，左侧标题 + 描述，右侧控件，行间 0.5px 分隔线；
+ * - 页签：「内置插件」的「插件列表 / 插件市场」页签；
+ * - 下拉：「通用设置 → 权限」，宿主 Menu 原语挂在圆角选择按钮上；
+ * - 按钮：「账号与余额 → 更多」的「查询用量 / 充值」两种按钮；
+ * - 开关：「通用设置 → 显示代码工作视图」的宿主 Switch 原语。
+ */
+const ROW_CLASS = 'flex min-w-0 flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b-[0.5px] border-[var(--dsw-alias-border-l2)] py-4 last:border-b-0'
+const SELECTOR_CLASS = 'inline-flex h-9 max-w-full min-w-0 cursor-pointer items-center gap-3 rounded-[var(--dsw-radius-md)] border-0 bg-[var(--dsw-alias-bg-module-platform)] px-3.5 text-sm leading-[22px] text-[var(--dsw-alias-label-primary)] hover:enabled:bg-[var(--dsw-alias-interactive-bg-hover)] disabled:cursor-default disabled:opacity-60'
+const INPUT_CLASS = 'h-9 min-w-0 rounded-[var(--dsw-radius-md)] border-0 bg-[var(--dsw-alias-bg-module-platform)] px-3.5 text-sm leading-[22px] text-[var(--dsw-alias-label-primary)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--dsw-alias-brand-primary)] disabled:opacity-60'
+const BUTTON_BASE = 'inline-flex h-9 min-w-[58px] flex-none cursor-pointer items-center justify-center whitespace-nowrap rounded-[var(--dsw-radius-md)] border-[0.5px] border-solid px-3.5 text-sm leading-[22px] no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dsw-alias-state-business-primary)] disabled:cursor-default disabled:opacity-50'
+/** 次要按钮：「查询用量」，透明底 + 0.5px 描边。 */
+const BUTTON_CLASS = `${BUTTON_BASE} border-[var(--dsw-alias-border-l3)] bg-transparent text-[var(--dsw-alias-label-primary)] hover:enabled:bg-[var(--dsw-alias-interactive-bg-hover)]`
+/** 主按钮：「充值」，品牌色实底、无描边、字重 500。 */
+const PRIMARY_BUTTON_CLASS = `${BUTTON_BASE} border-transparent bg-[var(--dsw-alias-button-primary-fill)] font-medium text-[var(--dsw-alias-label-primary-foreground)] hover:enabled:bg-[var(--dsw-alias-button-primary-hover)]`
+
+/** 设置行：左侧标题与描述，右侧控件；控件多时在窄面板里换到下一行。 */
+function Row({ title, description, children, alert }: { title: ReactNode; description?: ReactNode; children?: ReactNode; alert?: ReactNode }): ReactNode {
+  return <div className={ROW_CLASS}>
+    <div className="flex min-w-[220px] flex-1 basis-[220px] flex-col gap-1 pr-0 sm:pr-12">
+      <div className="text-sm leading-[22px] text-[var(--dsw-alias-label-primary)]">{title}</div>
+      {description !== undefined && <div className="text-xs leading-[18px] text-[var(--dsw-alias-label-tertiary)]">{description}</div>}
+      {alert !== undefined && <div role="alert" className="text-xs leading-[18px] text-[var(--dsw-alias-state-error-primary)]">{alert}</div>}
+    </div>
+    {children !== undefined && <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2">{children}</div>}
+  </div>
+}
+
+/** 下拉选择：宿主 Menu 原语 + 「权限」行同款选择按钮，选中项带对勾。 */
+function Select({ value, options, onChange, disabled = false, label }: {
+  value: string
+  options: readonly MenuItem[]
+  onChange: (value: string) => void
+  disabled?: boolean
+  label: string
+}): ReactNode {
+  const [open, setOpen] = useState(false)
+  const current = options.find(option => option.id === value)
+  return <Menu
+    open={open}
+    onClose={() => setOpen(false)}
+    items={options}
+    selectedId={value}
+    onSelect={(id) => { setOpen(false); if (id !== value) onChange(id) }}
+    align="end"
+    portal
+    anchor={<button type="button" className={SELECTOR_CLASS} aria-haspopup="menu" aria-expanded={open} aria-label={label} disabled={disabled || options.length === 0} onClick={() => setOpen(previous => !previous)}>
+      <span className="min-w-0 truncate">{current?.label ?? value}</span>
+      <IconChevronDownOutlineRegular className="flex-none" />
+    </button>}
+  />
+}
 
 /**
- * 服务商 / 模型 / 推理强度三级下拉，选项与 DSH「模型」设置保持一致。
- * 目录不可用时退回文本输入；当前值不在目录中时仍作为选项保留并标注不可用。
+ * 服务商 / 模型 / 推理强度三个下拉，选项与 DSH「模型」设置保持一致，作为一行右侧的控件组。
+ * 目录不可用时退回三个文本框；当前值不在目录中时仍作为选项保留并标注不可用。
  */
-function ModelFields({ value, disabled, t, catalog, onChange }: {
+function ModelRows({ heading, description, value, disabled, t, catalog, onChange }: {
+  heading?: string
+  description?: string
   value: DesktopModelSelection
   disabled: boolean
   t: Copy
   catalog: ModelCatalog | undefined
   onChange: (value: DesktopModelSelection) => void
 }): ReactNode {
+  const title = heading ?? t('model')
   if (catalog === undefined || catalog.groups.length === 0) {
-    return <div className="grid min-w-0 gap-3 sm:grid-cols-3">
-      {(['provider', 'model', 'reasoningEffort'] as const).map((field) => <label className="grid min-w-0 gap-1 text-sm" key={field}>
-        <span className="text-[var(--dsw-alias-label-tertiary)]">{t(field === 'reasoningEffort' ? 'effort' : field)}</span>
-        <input className={FIELD_CLASS} disabled={disabled} value={value[field] ?? ''} onChange={event => onChange({ ...value, [field]: event.currentTarget.value })} />
-      </label>)}
-    </div>
+    return <Row title={title} description={description}>
+      {(['provider', 'model', 'reasoningEffort'] as const).map(field => <input key={field} className={`${INPUT_CLASS} w-36`} disabled={disabled}
+        aria-label={t(field === 'reasoningEffort' ? 'effort' : field)} placeholder={t(field === 'reasoningEffort' ? 'effort' : field)}
+        value={value[field] ?? ''} onChange={event => onChange({ ...value, [field]: event.currentTarget.value })} />)}
+    </Row>
   }
   const group = catalog.groups.find(item => item.id === value.provider)
   const model = group?.models.find(item => item.id === value.model)
@@ -145,26 +200,16 @@ function ModelFields({ value, disabled, t, catalog, onChange }: {
     onChange({ provider: nextGroup.id, model: nextModel.id, ...(effort === undefined ? {} : { reasoningEffort: effort }) })
   }
   const unavailable = (label: string): string => `${label}（${t('modelUnavailable')}）`
-  return <div className="grid min-w-0 gap-3 sm:grid-cols-3">
-    <label className="grid min-w-0 gap-1 text-sm"><span className="text-[var(--dsw-alias-label-tertiary)]">{t('provider')}</span>
-      <select className={FIELD_CLASS} disabled={disabled} value={value.provider} onChange={event => pickModel(event.currentTarget.value, undefined)}>
-        {group === undefined && <option value={value.provider}>{unavailable(value.provider)}</option>}
-        {catalog.groups.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-      </select></label>
-    <label className="grid min-w-0 gap-1 text-sm"><span className="text-[var(--dsw-alias-label-tertiary)]">{t('model')}</span>
-      <select className={FIELD_CLASS} disabled={disabled || group === undefined} value={value.model} onChange={event => pickModel(value.provider, event.currentTarget.value)}>
-        {model === undefined && <option value={value.model}>{unavailable(value.model)}</option>}
-        {group?.models.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-      </select></label>
-    <label className="grid min-w-0 gap-1 text-sm"><span className="text-[var(--dsw-alias-label-tertiary)]">{t('effort')}</span>
-      <select className={FIELD_CLASS} disabled={disabled || efforts.length === 0} value={value.reasoningEffort ?? ''}
-        onChange={event => { const effort = event.currentTarget.value; const { reasoningEffort: _effort, ...rest } = value; onChange(effort === '' ? rest : { ...rest, reasoningEffort: effort }) }}>
-        {efforts.length === 0 && <option value="">{t('effortNone')}</option>}
-        {value.reasoningEffort !== undefined && efforts.length > 0 && !efforts.some(item => item.id === value.reasoningEffort)
-          && <option value={value.reasoningEffort}>{unavailable(value.reasoningEffort)}</option>}
-        {efforts.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-      </select></label>
-  </div>
+  const providerOptions: MenuItem[] = [...(group === undefined ? [{ id: value.provider, label: unavailable(value.provider) }] : []), ...catalog.groups.map(item => ({ id: item.id, label: item.name }))]
+  const modelOptions: MenuItem[] = [...(model === undefined ? [{ id: value.model, label: unavailable(value.model) }] : []), ...(group?.models.map(item => ({ id: item.id, label: item.name })) ?? [])]
+  const effortOptions: MenuItem[] = efforts.length === 0 ? [{ id: '', label: t('effortNone') }]
+    : [...(value.reasoningEffort !== undefined && !efforts.some(item => item.id === value.reasoningEffort) ? [{ id: value.reasoningEffort, label: unavailable(value.reasoningEffort) }] : []), ...efforts.map(item => ({ id: item.id, label: item.name }))]
+  return <Row title={title} description={description ?? `${t('provider')} / ${t('model')} / ${t('effort')}`}>
+    <Select label={t('provider')} value={value.provider} options={providerOptions} disabled={disabled} onChange={id => pickModel(id, undefined)} />
+    <Select label={t('model')} value={value.model} options={modelOptions} disabled={disabled || group === undefined} onChange={id => pickModel(value.provider, id)} />
+    <Select label={t('effort')} value={value.reasoningEffort ?? ''} options={effortOptions} disabled={disabled || efforts.length === 0}
+      onChange={(effort) => { const { reasoningEffort: _effort, ...rest } = value; onChange(effort === '' ? rest : { ...rest, reasoningEffort: effort }) }} />
+  </Row>
 }
 
 export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps): ReactNode {
@@ -315,104 +360,136 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
     }
   }
 
-  if (draft === undefined) return <section className="grid gap-4" aria-busy="true">
-    <h2 className="text-base font-semibold text-[var(--dsw-alias-label-primary)]">{t('title')}</h2>
+  if (draft === undefined) return <section className="flex min-w-0 flex-col gap-3 text-[var(--dsw-alias-label-primary)]" aria-busy="true">
+    <h2 className="m-0 text-lg font-semibold">{t('title')}</h2>
     {message
-      ? <><p role="alert" className="text-sm text-[var(--dsw-alias-state-error-primary)]">{message}</p>
-        <button type="button" className="w-fit rounded border border-[var(--dsw-alias-border-l2)] px-3 py-1.5 text-sm" onClick={() => { void load() }}>{t('retryLoad')}</button></>
-      : <p role="status" className="text-sm text-[var(--dsw-alias-label-tertiary)]">{t('loading')}</p>}
+      ? <><p role="alert" className="m-0 text-sm text-[var(--dsw-alias-state-error-primary)]">{message}</p>
+        <button type="button" className={`${BUTTON_CLASS} w-fit`} onClick={() => { void load() }}>{t('retryLoad')}</button></>
+      : <p role="status" className="m-0 text-[13px] text-[var(--dsw-alias-label-tertiary)]">{t('loading')}</p>}
   </section>
 
-  return <section className="grid min-w-0 gap-4 text-[var(--dsw-alias-label-primary)]" aria-busy={busy}>
-    <header className="flex min-w-0 flex-wrap items-center justify-between gap-3">
-      <h2 className="text-base font-semibold">{t('title')}</h2>
-      <span className="text-xs text-[var(--dsw-alias-label-tertiary)]">{snapshot?.runtime === 'running' ? t('runtimeRunning') : snapshot?.runtime === 'degraded' ? t('runtimeDegraded') : t('runtimeStopped')}</span>
-    </header>
-    <nav className="flex flex-wrap gap-1 border-b border-[var(--border-subtle)]" aria-label={t('title')}>
-      {tabs.map(item => <button key={item} type="button" role="tab" aria-selected={tab === item} onClick={() => setTab(item)}
-        className="max-w-full border-b-2 border-transparent px-3 py-2 text-sm text-[var(--dsw-alias-label-tertiary)] hover:text-[var(--dsw-alias-label-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--dsw-alias-brand-primary)] aria-selected:border-[var(--dsw-alias-brand-primary)] aria-selected:text-[var(--dsw-alias-label-primary)]">
+  const enableKey = tab === 'selection' ? 'enableSelection' : tab === 'floating' ? 'enableFloating' : tab === 'screenshot' ? 'enableScreenshot' : 'enableRecording'
+  const languageOptions: MenuItem[] = [...LANGUAGES.map(([id, label]) => ({ id, label })), { id: OTHER_LANGUAGE, label: t('otherLanguage') }]
+  const permissionText = (right: 'screen' | 'accessibility'): string => permissions?.[right] === true ? t('permissionGranted') : permissions?.[right] === false ? t('permissionDenied') : t('permissionUnknown')
+  const shortcutRow = (field: ShortcutField): ReactNode => <Row key={field} title={t(field === 'screenshot.longShortcut' ? 'longShortcut' : 'shortcut')}
+    description={capturing === field ? t('recordingShortcut') : t('shortcutDescription')}>
+    <kbd className="inline-flex h-9 min-w-[58px] items-center justify-center rounded-[var(--dsw-radius-md)] bg-[var(--dsw-alias-bg-module-platform)] px-3 font-[inherit] text-sm">{acceleratorLabel(shortcutValue(field), snapshot?.platform)}</kbd>
+    <button type="button" className={BUTTON_CLASS} onClick={() => setCapturing(capturing === field ? undefined : field)}>{capturing === field ? t('cancelRecording') : t('recordShortcut')}</button>
+    {shortcutValue(field) !== '' && <button type="button" className={BUTTON_CLASS} onClick={() => setShortcut(field, '')}>{t('clearShortcut')}</button>}
+    <button type="button" className={BUTTON_CLASS} disabled={active?.phase !== 'active'} onClick={() => { void services.openCapture(field === 'recording.shortcut' ? 'video' : field === 'screenshot.longShortcut' ? 'long' : 'image') }}>{t('tryNow')}</button>
+  </Row>
+
+  return <section className="flex min-w-0 flex-col gap-3 text-[var(--dsw-alias-label-primary)]" aria-busy={busy}>
+    <div className="flex min-w-0 flex-col gap-1">
+      <h2 className="m-0 text-lg font-semibold">{t('title')}</h2>
+      <p className="m-0 text-[13px] text-[var(--dsw-alias-label-tertiary)]">{t('intro')} · {snapshot?.runtime === 'running' ? t('runtimeRunning') : snapshot?.runtime === 'degraded' ? t('runtimeDegraded') : t('runtimeStopped')}</p>
+    </div>
+
+    {/* 页签：与「内置插件 → 插件列表 / 插件市场」一致，13px 文字、当前项 2px 下划线 */}
+    <div role="tablist" aria-label={t('title')} className="mt-0.5 flex flex-wrap items-end gap-x-[22px] border-b-[0.5px] border-[var(--dsw-alias-border-l2)]">
+      {tabs.map((item, index) => <button key={item} id={`desktop-tools-tab-${item}`} type="button" role="tab" aria-selected={tab === item} aria-controls="desktop-tools-panel"
+        tabIndex={tab === item ? 0 : -1} data-active={tab === item ? 'true' : undefined}
+        onClick={() => setTab(item)}
+        onKeyDown={(event) => {
+          const next = event.key === 'ArrowRight' ? (index + 1) % tabs.length : event.key === 'ArrowLeft' ? (index - 1 + tabs.length) % tabs.length : undefined
+          if (next === undefined) return
+          event.preventDefault()
+          setTab(tabs[next]!)
+          document.getElementById(`desktop-tools-tab-${tabs[next]}`)?.focus()
+        }}
+        className="relative flex-none cursor-pointer border-0 bg-transparent px-px pb-[9px] pt-[7px] font-[inherit] text-[13px] leading-5 text-[var(--dsw-alias-label-tertiary)] hover:text-[var(--dsw-alias-label-primary)] focus-visible:rounded-[2px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dsw-alias-state-business-primary)] data-[active=true]:text-[var(--dsw-alias-label-primary)] data-[active=true]:after:absolute data-[active=true]:after:inset-x-0 data-[active=true]:after:-bottom-px data-[active=true]:after:h-0.5 data-[active=true]:after:rounded-t-[2px] data-[active=true]:after:bg-[var(--dsw-alias-label-primary)] data-[active=true]:after:content-['']">
         {t(item)}
       </button>)}
-    </nav>
-    <div className="grid min-w-0 gap-4" role="tabpanel">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <label className="flex min-h-10 items-center gap-2 text-sm"><input type="checkbox" checked={enabled} onChange={event => setFeature(tab, event.currentTarget.checked)} />{t('enabled')}</label>
-        <span className="text-xs text-[var(--dsw-alias-label-tertiary)]">{statusLabel(active?.phase ?? 'disabled', t)}</span>
-        {active?.phase === 'error' && active.error && <span role="alert" className="basis-full text-xs text-[var(--dsw-alias-state-error-primary)]">{active.error}</span>}
-      </div>
-      {tab === 'selection' && <>
-        <div className="grid gap-1 text-sm"><label htmlFor="desktop-tools-language">{t('language')}</label>
-          <div className="flex min-w-0 flex-wrap gap-2">
-            <select id="desktop-tools-language" className={FIELD_CLASS} value={customLanguage ? OTHER_LANGUAGE : languageChoice(draft.selection.targetLanguage)}
-              onChange={event => {
-                const value = event.currentTarget.value
-                setCustomLanguage(value === OTHER_LANGUAGE)
-                if (value !== OTHER_LANGUAGE) setDraft({ ...draft, selection: { ...draft.selection, targetLanguage: value } })
-              }}>
-              {LANGUAGES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              <option value={OTHER_LANGUAGE}>{t('otherLanguage')}</option>
-            </select>
-            {customLanguage && <input className={`${FIELD_CLASS} flex-1`} aria-label={t('otherLanguage')} placeholder={t('otherLanguagePlaceholder')} maxLength={80}
-              value={languageChoice(draft.selection.targetLanguage) === OTHER_LANGUAGE ? draft.selection.targetLanguage : ''}
-              onChange={event => setDraft({ ...draft, selection: { ...draft.selection, targetLanguage: event.currentTarget.value } })} />}
-          </div>
-        </div>
-        <label className="flex min-h-10 items-center gap-2 text-sm"><input type="checkbox" checked={draft.selection.compatibilityCopy} onChange={event => setDraft({ ...draft, selection: { ...draft.selection, compatibilityCopy: event.currentTarget.checked } })} />{t('compatibilityCopy')}</label>
-        <label className="flex min-h-10 items-center gap-2 text-sm"><input type="checkbox" checked={draft.selection.model !== undefined} onChange={event => setSelectionModelEnabled(event.currentTarget.checked)} />{t('customModel')}</label>
-        {draft.selection.model === undefined ? <p className="text-sm text-[var(--dsw-alias-label-tertiary)]">{t('followSession')}</p>
-          : <ModelFields value={draft.selection.model} disabled={busy} t={t} catalog={catalog} onChange={value => setModel('selection', value)} />}
-      </>}
-      {tab === 'floating' && <>
-        <div className="flex flex-wrap items-center gap-3">{(avatar ?? defaultAvatar) === undefined ? <span aria-hidden="true" className="size-12 rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)]" />
-          : <img src={avatar ?? defaultAvatar} alt={t('avatar')} className="size-12 rounded border border-[var(--dsw-alias-border-l2)] object-cover" />}
-          {avatar === undefined && defaultAvatar !== undefined && <span className="text-xs text-[var(--dsw-alias-label-tertiary)]">{t('defaultAvatar')}</span>}
-          <label className="cursor-pointer rounded border border-[var(--dsw-alias-border-l2)] px-3 py-2 text-sm focus-within:ring-2 focus-within:ring-[var(--dsw-alias-brand-primary)]">{t('chooseAvatar')}<input className="sr-only" type="file" accept="image/gif,image/png,image/webp" onChange={uploadAvatar} /></label>
-          <button type="button" className="rounded border border-[var(--dsw-alias-border-l2)] px-3 py-2 text-sm" onClick={() => { void services.restoreAvatar().then(result => { if (result.ok) void load() }) }}>{t('restoreAvatar')}</button>
-        </div>
-        <h3 className="text-sm font-medium">{t('conversationModel')}</h3><ModelFields value={draft.floatingBall.conversationModel} disabled={busy} t={t} catalog={catalog} onChange={value => setModel('conversationModel', value)} />
-        <h3 className="text-sm font-medium">{t('backgroundModel')}</h3><ModelFields value={draft.floatingBall.backgroundModel} disabled={busy} t={t} catalog={catalog} onChange={value => setModel('backgroundModel', value)} />
-        <label className="grid gap-1 text-sm"><span>{t('permissionPreset')}</span><select className="rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)] px-3 py-2" value={draft.floatingBall.permissionPreset} onChange={event => setDraft({ ...draft, floatingBall: { ...draft.floatingBall, permissionPreset: event.currentTarget.value as DesktopToolsConfig['floatingBall']['permissionPreset'] } })}><option value="read-only">read-only</option><option value="workspace-write">workspace-write</option><option value="danger-full-access">danger-full-access</option></select></label>
-        <label className="grid gap-1 text-sm"><span>{t('coordinateMode')}</span><select className="rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)] px-3 py-2" value={draft.floatingBall.coordinateMode} onChange={event => setDraft({ ...draft, floatingBall: { ...draft.floatingBall, coordinateMode: event.currentTarget.value as DesktopToolsConfig['floatingBall']['coordinateMode'] } })}><option value="millifraction">millifraction</option><option value="pixel">pixel</option></select></label>
-        <div className="grid gap-2"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-medium">{t('systemPermissions')}</h3><button type="button" className="text-sm text-[var(--dsw-alias-brand-primary)]" onClick={() => { void checkPermissions() }}>{t('check')}</button></div>
-          {(['screen', 'accessibility'] as const).map(right => <div key={right} className="flex flex-wrap items-center justify-between gap-2 text-sm"><span>{t(right === 'screen' ? 'screenPermission' : 'accessibilityPermission')}</span><span>{permissions?.[right] === true ? t('permissionGranted') : permissions?.[right] === false ? t('permissionDenied') : t('permissionUnknown')}</span><button type="button" className="text-[var(--dsw-alias-brand-primary)]" onClick={() => { void services.openSystemPermission(right).then(() => { void checkPermissions() }) }}>{t('openSettings')}</button></div>)}
-        </div>
-      </>}
-      {(tab === 'screenshot' || tab === 'recording') && <div className="grid gap-3">
-        {(tab === 'screenshot' ? ['screenshot.shortcut', 'screenshot.longShortcut'] as const : ['recording.shortcut'] as const).map(field => <div key={field} className="grid gap-1">
-          <span className="text-sm text-[var(--dsw-alias-label-tertiary)]">{t(field === 'screenshot.longShortcut' ? 'longShortcut' : 'shortcut')}</span>
-          <div className="flex flex-wrap items-center gap-2">
-            <kbd className="rounded border border-[var(--dsw-alias-border-l2)] px-2 py-1 text-sm">{acceleratorLabel(shortcutValue(field), snapshot?.platform)}</kbd>
-            <button type="button" className="rounded border border-[var(--dsw-alias-border-l2)] px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--dsw-alias-brand-primary)]" onClick={() => setCapturing(field)}>{capturing === field ? t('recordingShortcut') : t('recordShortcut')}</button>
-            {shortcutValue(field) !== '' && <button type="button" className="px-2 py-2 text-sm text-[var(--dsw-alias-label-tertiary)] hover:text-[var(--dsw-alias-label-primary)]" onClick={() => setShortcut(field, '')}>{t('clearShortcut')}</button>}
-            <button type="button" className="px-2 py-2 text-sm text-[var(--dsw-alias-brand-primary)] disabled:opacity-50" disabled={active?.phase !== 'active'} onClick={() => { void services.openCapture(field === 'recording.shortcut' ? 'video' : field === 'screenshot.longShortcut' ? 'long' : 'image') }}>{t('tryNow')}</button>
-          </div>
-        </div>)}
-        <p className="text-xs text-[var(--dsw-alias-label-tertiary)]">{t('globalShortcutHint')}</p>
-      </div>}
-      {tab === 'screenshot' && <div className="grid gap-2 rounded border border-[var(--dsw-alias-border-l2)] p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-medium">{t('visionTitle')}</h3>
-          <span className={snapshot?.vision.state === 'ready' ? 'text-xs text-[var(--dsw-alias-state-success-primary)]' : 'text-xs text-[var(--dsw-alias-label-tertiary)]'}>{t(snapshot?.vision.state === 'ready' ? 'visionStateReady' : snapshot?.vision.state === 'missing' ? 'visionStateMissing' : snapshot?.vision.state === 'disabled' ? 'visionStateDisabled' : snapshot?.vision.state === 'tool-off' ? 'visionStateToolOff' : 'visionStateUnknown')}</span>
-        </div>
-        <p className="text-sm text-[var(--dsw-alias-label-tertiary)]">{t('visionDescription')}</p>
-        {snapshot?.vision.state !== 'ready' && snapshot?.vision.state !== 'tool-off' && <div className="flex flex-wrap items-center gap-2">
-          <button type="button" disabled={installing} className="rounded bg-[var(--dsw-alias-brand-primary)] px-3 py-2 text-sm text-white disabled:opacity-50" onClick={() => { void installVision() }}>{installing ? t('visionInstalling') : snapshot?.vision.state === 'disabled' ? t('visionEnable') : t('visionInstall')}</button>
-          <code className="text-xs text-[var(--dsw-alias-label-tertiary)]">dsh plugin add dsh-vision-router</code>
-        </div>}
-      </div>}
-      {tab === 'recording' && <div className="grid gap-3">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="grid gap-1 text-sm"><span>{t('recordingFormat')}</span><select className="rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)] px-3 py-2" value={draft.recording.format} onChange={event => setDraft({ ...draft, recording: { ...draft.recording, format: event.currentTarget.value as DesktopToolsConfig['recording']['format'] } })}><option value="mp4">MP4</option><option value="gif">GIF</option><option value="webm">WebM</option></select></label>
-          <label className="grid gap-1 text-sm"><span>{t('recordingQuality')}</span><select className="rounded border border-[var(--dsw-alias-border-l2)] bg-[var(--dsw-alias-bg-module-platform)] px-3 py-2" value={draft.recording.quality} onChange={event => setDraft({ ...draft, recording: { ...draft.recording, quality: event.currentTarget.value as DesktopToolsConfig['recording']['quality'] } })}><option value="sd">{t('qualitySd')}</option><option value="hd">{t('qualityHd')}</option><option value="original">{t('qualityOriginal')}</option></select></label>
-        </div>
-        {(['systemAudio', 'microphone', 'knowledgeGraph'] as const).map(field => <label key={field} className="flex min-h-10 items-center gap-2 text-sm">
-          <input type="checkbox" checked={draft.recording[field]} disabled={field === 'systemAudio' && snapshot?.platform === 'linux'} onChange={event => setDraft({ ...draft, recording: { ...draft.recording, [field]: event.currentTarget.checked } })} />
-          {t(field === 'systemAudio' ? 'recordingSystemAudio' : field === 'microphone' ? 'recordingMicrophone' : 'recordingGraph')}
-        </label>)}
-        <p className="text-xs text-[var(--dsw-alias-label-tertiary)]">{t('recordingGraphHint')}</p>
-      </div>}
     </div>
-    {message && <p role="status" className={message === t('saved') ? 'text-sm text-[var(--dsw-alias-state-success-primary)]' : 'text-sm text-[var(--dsw-alias-state-error-primary)]'}>{message}</p>}
-    <footer className="flex flex-wrap justify-end gap-2 border-t border-[var(--dsw-alias-border-l2)] pt-3"><button type="button" disabled={busy} className="rounded border border-[var(--dsw-alias-border-l2)] px-3 py-2 text-sm disabled:opacity-50" onClick={() => { void load() }}>{t('check')}</button>{pending && <button type="button" disabled={busy} className="rounded border border-[var(--dsw-alias-border-l2)] px-3 py-2 text-sm disabled:opacity-50" onClick={() => { void retry() }}>{t('retry')}</button>}<button type="button" disabled={busy} className="rounded bg-[var(--dsw-alias-brand-primary)] px-3 py-2 text-sm text-white disabled:opacity-50" onClick={() => { void save() }}>{busy ? t('saving') : t('save')}</button></footer>
+
+    <div id="desktop-tools-panel" role="tabpanel" aria-labelledby={`desktop-tools-tab-${tab}`} className="flex min-w-0 flex-col pt-0.5">
+      <Row title={t(enableKey)} description={enabled ? statusLabel(active?.phase ?? 'disabled', t) : t('featureDisabled')} alert={active?.phase === 'error' && active.error ? active.error : undefined}>
+        <Switch checked={enabled} disabled={busy} label={t(enableKey)} onChange={next => setFeature(tab, next)} />
+      </Row>
+
+      {tab === 'selection' && <>
+        <Row title={t('language')} description={t('languageDescription')}>
+          {customLanguage && <input className={`${INPUT_CLASS} w-40`} aria-label={t('otherLanguage')} placeholder={t('otherLanguagePlaceholder')} maxLength={80}
+            value={languageChoice(draft.selection.targetLanguage) === OTHER_LANGUAGE ? draft.selection.targetLanguage : ''}
+            onChange={event => setDraft({ ...draft, selection: { ...draft.selection, targetLanguage: event.currentTarget.value } })} />}
+          <Select label={t('language')} value={customLanguage ? OTHER_LANGUAGE : languageChoice(draft.selection.targetLanguage)} options={languageOptions}
+            onChange={(value) => {
+              setCustomLanguage(value === OTHER_LANGUAGE)
+              if (value !== OTHER_LANGUAGE) setDraft({ ...draft, selection: { ...draft.selection, targetLanguage: value } })
+            }} />
+        </Row>
+        <Row title={t('compatibilityCopy')} description={t('compatibilityCopyDescription')}>
+          <Switch checked={draft.selection.compatibilityCopy} disabled={busy} label={t('compatibilityCopy')} onChange={next => setDraft({ ...draft, selection: { ...draft.selection, compatibilityCopy: next } })} />
+        </Row>
+        <Row title={t('customModel')} description={draft.selection.model === undefined ? t('followSession') : t('customModelDescription')}>
+          <Switch checked={draft.selection.model !== undefined} disabled={busy} label={t('customModel')} onChange={setSelectionModelEnabled} />
+        </Row>
+        {draft.selection.model !== undefined && <ModelRows value={draft.selection.model} disabled={busy} t={t} catalog={catalog} onChange={value => setModel('selection', value)} />}
+      </>}
+
+      {tab === 'floating' && <>
+        <Row title={t('avatar')} description={avatar === undefined && defaultAvatar !== undefined ? `${t('avatarDescription')} ${t('defaultAvatar')}` : t('avatarDescription')}>
+          {(avatar ?? defaultAvatar) === undefined ? <span aria-hidden="true" className="size-9 rounded-[var(--dsw-radius-md)] bg-[var(--dsw-alias-bg-module-platform)]" />
+            : <img src={avatar ?? defaultAvatar} alt={t('avatar')} className="size-9 rounded-[var(--dsw-radius-md)] object-cover" />}
+          <label className={`${BUTTON_CLASS} focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[var(--dsw-alias-state-business-primary)]`}>{t('chooseAvatar')}<input className="sr-only" type="file" accept="image/gif,image/png,image/webp" onChange={uploadAvatar} /></label>
+          <button type="button" className={BUTTON_CLASS} onClick={() => { void services.restoreAvatar().then(result => { if (result.ok) void load() }) }}>{t('restoreAvatar')}</button>
+        </Row>
+        <ModelRows heading={t('conversationModel')} description={t('conversationModelDescription')} value={draft.floatingBall.conversationModel} disabled={busy} t={t} catalog={catalog} onChange={value => setModel('conversationModel', value)} />
+        <ModelRows heading={t('backgroundModel')} description={t('backgroundModelDescription')} value={draft.floatingBall.backgroundModel} disabled={busy} t={t} catalog={catalog} onChange={value => setModel('backgroundModel', value)} />
+        <Row title={t('permissionPreset')} description={t('permissionPresetDescription')}>
+          <Select label={t('permissionPreset')} value={draft.floatingBall.permissionPreset} disabled={busy}
+            options={[{ id: 'read-only', label: 'read-only' }, { id: 'workspace-write', label: 'workspace-write' }, { id: 'danger-full-access', label: 'danger-full-access' }]}
+            onChange={value => setDraft({ ...draft, floatingBall: { ...draft.floatingBall, permissionPreset: value as DesktopToolsConfig['floatingBall']['permissionPreset'] } })} />
+        </Row>
+        <Row title={t('coordinateMode')} description={t('coordinateModeDescription')}>
+          <Select label={t('coordinateMode')} value={draft.floatingBall.coordinateMode} disabled={busy}
+            options={[{ id: 'millifraction', label: 'millifraction' }, { id: 'pixel', label: 'pixel' }]}
+            onChange={value => setDraft({ ...draft, floatingBall: { ...draft.floatingBall, coordinateMode: value as DesktopToolsConfig['floatingBall']['coordinateMode'] } })} />
+        </Row>
+        <Row title={t('systemPermissions')} description={t('systemPermissionsDescription')}>
+          <button type="button" className={BUTTON_CLASS} onClick={() => { void checkPermissions() }}>{t('check')}</button>
+        </Row>
+        {(['screen', 'accessibility'] as const).map(right => <Row key={right} title={t(right === 'screen' ? 'screenPermission' : 'accessibilityPermission')} description={permissionText(right)}>
+          <button type="button" className={BUTTON_CLASS} onClick={() => { void services.openSystemPermission(right).then(() => { void checkPermissions() }) }}>{t('openSettings')}</button>
+        </Row>)}
+      </>}
+
+      {tab === 'screenshot' && <>
+        {shortcutRow('screenshot.shortcut')}
+        {shortcutRow('screenshot.longShortcut')}
+        <Row title={t('visionTitle')} description={<>{t('visionDescription')}<br />{t(snapshot?.vision.state === 'ready' ? 'visionStateReady' : snapshot?.vision.state === 'missing' ? 'visionStateMissing' : snapshot?.vision.state === 'disabled' ? 'visionStateDisabled' : snapshot?.vision.state === 'tool-off' ? 'visionStateToolOff' : 'visionStateUnknown')}</>}>
+          {snapshot?.vision.state !== 'ready' && snapshot?.vision.state !== 'tool-off'
+            && <button type="button" disabled={installing} className={PRIMARY_BUTTON_CLASS} onClick={() => { void installVision() }}>{installing ? t('visionInstalling') : snapshot?.vision.state === 'disabled' ? t('visionEnable') : t('visionInstall')}</button>}
+        </Row>
+      </>}
+
+      {tab === 'recording' && <>
+        {shortcutRow('recording.shortcut')}
+        <Row title={t('recordingFormat')} description={t('recordingFormatDescription')}>
+          <Select label={t('recordingFormat')} value={draft.recording.format} disabled={busy}
+            options={[{ id: 'mp4', label: 'MP4' }, { id: 'gif', label: 'GIF' }, { id: 'webm', label: 'WebM' }]}
+            onChange={value => setDraft({ ...draft, recording: { ...draft.recording, format: value as DesktopToolsConfig['recording']['format'] } })} />
+        </Row>
+        <Row title={t('recordingQuality')} description={t('recordingQualityDescription')}>
+          <Select label={t('recordingQuality')} value={draft.recording.quality} disabled={busy}
+            options={[{ id: 'sd', label: t('qualitySd') }, { id: 'hd', label: t('qualityHd') }, { id: 'original', label: t('qualityOriginal') }]}
+            onChange={value => setDraft({ ...draft, recording: { ...draft.recording, quality: value as DesktopToolsConfig['recording']['quality'] } })} />
+        </Row>
+        {(['systemAudio', 'microphone', 'knowledgeGraph'] as const).map(field => {
+          const label = t(field === 'systemAudio' ? 'recordingSystemAudio' : field === 'microphone' ? 'recordingMicrophone' : 'recordingGraph')
+          return <Row key={field} title={label} description={field === 'knowledgeGraph' ? t('recordingGraphHint') : undefined}>
+            <Switch checked={draft.recording[field]} disabled={busy || (field === 'systemAudio' && snapshot?.platform === 'linux')} label={label}
+              onChange={next => setDraft({ ...draft, recording: { ...draft.recording, [field]: next } })} />
+          </Row>
+        })}
+      </>}
+    </div>
+
+    {message && <p role="status" className={message === t('saved') ? 'm-0 text-[13px] text-[var(--dsw-alias-state-success-primary)]' : 'm-0 text-[13px] text-[var(--dsw-alias-state-error-primary)]'}>{message}</p>}
+    <footer className="flex flex-wrap justify-end gap-2 border-t-[0.5px] border-[var(--dsw-alias-border-l2)] pt-4">
+      <button type="button" disabled={busy} className={BUTTON_CLASS} onClick={() => { void load() }}>{t('check')}</button>
+      {pending && <button type="button" disabled={busy} className={BUTTON_CLASS} onClick={() => { void retry() }}>{t('retry')}</button>}
+      <button type="button" disabled={busy} className={PRIMARY_BUTTON_CLASS} onClick={() => { void save() }}>{busy ? t('saving') : t('save')}</button>
+    </footer>
   </section>
 }

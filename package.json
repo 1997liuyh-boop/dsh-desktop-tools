@@ -1,6 +1,6 @@
 {
   "name": "dsh-desktop-tools",
-  "version": "0.4.9",
+  "version": "0.4.10",
   "type": "module",
   "license": "MIT",
   "description": "Desktop selection toolbar, floating assistant, screenshots, long screenshots and screen recording for DSH",
@@ -45,7 +45,8 @@
         "@deepseek-ai/dsh-api-remotes",
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-shortcuts",
-        "@deepseek-ai/dsh-client-ui-settings"
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-primitives"
       ],
       "platform": "web"
     },
