@@ -201,7 +201,7 @@ export async function activate(context: DesktopFeatureContext): Promise<void> {
     const config = readDesktopToolsConfig(paths.profile)
     return context.service('capture') !== undefined && (config.screenshot.enabled || config.recording.enabled)
   }
-  const floatingShell = context.own(createFloatingWindow(shellPreload, messages, () => {
+  const floatingShell = context.own(createFloatingWindow(shellPreload, () => environment.locale().messages, () => {
     context.showMain()
   }, {
     capture: () => {
@@ -217,6 +217,7 @@ export async function activate(context: DesktopFeatureContext): Promise<void> {
     wechatEnabled: () => context.service('wechat') !== undefined,
     pins: () => { context.service('capture')?.pins.manage() },
     pinsEnabled: () => context.service('capture') !== undefined,
+    history: () => { context.service('capture')?.history.open() },
   }, {
     backgroundSupported: !environment.standalone,
     loadCatalog: loadFloatingModelCatalog,
@@ -234,6 +235,10 @@ export async function activate(context: DesktopFeatureContext): Promise<void> {
     },
   }))
   const floatingWindow = floatingShell
+  // 设置页保存后推送最新的对话模型；其余悬浮球设置每次使用时读盘，无需处理。
+  context.onConfig(() => {
+    if (!floatingShell.isDestroyed()) floatingShell.webContents.send(DESKTOP_IPC.floatingOverlayModel, readOrbAgentModels(paths.profile).overlay)
+  })
   floatingWindow.once('ready-to-show', () => { floatingWindow.showInactive() })
   floatingWindow.on('focus', () => { publishTcc() })
   await floatingWindow.loadURL(`${SCHEME}://shell/floating.html`)

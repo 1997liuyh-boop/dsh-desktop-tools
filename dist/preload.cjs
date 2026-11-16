@@ -248,6 +248,16 @@ electron.contextBridge.exposeInMainWorld("dshDesktop", {
 		}
 	},
 	locale: () => electron.ipcRenderer.invoke(DESKTOP_IPC.floatingLocale),
+	/** DSH 切换界面语言后通知已打开的窗口；返回取消订阅函数。 */
+	onLocaleChanged: (listener) => {
+		const handle = () => {
+			listener();
+		};
+		electron.ipcRenderer.on(DESKTOP_IPC.localeChanged, handle);
+		return () => {
+			electron.ipcRenderer.off(DESKTOP_IPC.localeChanged, handle);
+		};
+	},
 	backend,
 	floating: standaloneFloating,
 	selection

@@ -42,6 +42,13 @@ export interface DesktopFeaturePlugin {
   activate(context: DesktopFeatureContext): void | Promise<void>
 }
 
+/** @param listeners 监听集合。 @param label 日志中的事件名。 */
+function notifyAll(listeners: ReadonlySet<() => void>, label: string): void {
+  for (const listener of listeners) {
+    try { listener() } catch (error: unknown) { console.error(`桌面扩展处理${label}失败`, error) }
+  }
+}
+
 /** 单个扩展的注册作用域；卸载先停入口，再逆序释放异步资源。 */
 export class DesktopFeatureContext {
   private readonly releases: Dispose[] = []
@@ -51,6 +58,8 @@ export class DesktopFeatureContext {
   private readonly readyListeners = new Set<(host: Host) => void>()
   private readonly activateListeners = new Set<() => void>()
   private readonly guardListeners = new Set<() => void>()
+  private readonly configListeners = new Set<() => void>()
+  private readonly localeListeners = new Set<() => void>()
   private readonly protocols = new Set<(request: Request) => Response | Promise<Response> | undefined>()
   private readonly menus = new Set<() => MenuItemConstructorOptions[]>()
   private stopped = false
@@ -111,6 +120,10 @@ export class DesktopFeatureContext {
   onActivate(listener: () => void): void { this.activateListeners.add(listener) }
   /** @param listener 后端停止或失败时复位屏幕覆盖状态。 */
   onGuardReset(listener: () => void): void { this.guardListeners.add(listener) }
+  /** @param listener 设置页保存后，本扩展仍在运行时就地重读配置。 */
+  onConfig(listener: () => void): void { this.configListeners.add(listener) }
+  /** @param listener DSH 切换界面语言后刷新本扩展的文案。 */
+  onLocale(listener: () => void): void { this.localeListeners.add(listener) }
   /** @param handler 返回本扩展资源的响应，未匹配时返回 undefined。 */
   protocol(handler: (request: Request) => Response | Promise<Response> | undefined): void { this.protocols.add(handler) }
   /** @param provider 按当前语言生成扩展的菜单项。 */
@@ -153,6 +166,10 @@ export class DesktopFeatureContext {
   activated(): void { if (!this.stopped) for (const listener of this.activateListeners) listener() }
   /** 复位本扩展原生覆盖状态。 */
   resetGuard(): void { if (!this.stopped) for (const listener of this.guardListeners) listener() }
+  /** 通知配置已更新；单个监听失败只记录，不影响其他监听。 */
+  configChanged(): void { if (!this.stopped) notifyAll(this.configListeners, '配置更新') }
+  /** 通知界面语言已切换。 */
+  localeChanged(): void { if (!this.stopped) notifyAll(this.localeListeners, '语言切换') }
   /** @param request 自定义协议请求。 @returns 本扩展匹配的响应。 */
   serve(request: Request): Response | Promise<Response> | undefined {
     if (!this.stopped) for (const handler of this.protocols) {
@@ -186,6 +203,8 @@ export class DesktopFeatureContext {
     this.readyListeners.clear()
     this.activateListeners.clear()
     this.guardListeners.clear()
+    this.configListeners.clear()
+    this.localeListeners.clear()
     this.protocols.clear()
     this.menus.clear()
   }
@@ -287,6 +306,10 @@ export class DesktopFeatureHost {
   activated(): void { for (const { context, active } of this.scopes.values()) if (active) context.activated() }
   /** 复位所有扩展原生覆盖。 */
   resetGuard(): void { for (const { context, active } of this.scopes.values()) if (active) context.resetGuard() }
+  /** 通知所有运行中的扩展重读配置。 */
+  configChanged(): void { for (const { context, active } of this.scopes.values()) if (active) context.configChanged() }
+  /** 通知所有运行中的扩展界面语言已切换。 */
+  localeChanged(): void { for (const { context, active } of this.scopes.values()) if (active) context.localeChanged() }
   /** 广播当前后端可用状态。 */
   publishState(): void {
     for (const { context, active } of this.scopes.values()) if (active) context.publish(DESKTOP_IPC.backendState, this.stateValue())

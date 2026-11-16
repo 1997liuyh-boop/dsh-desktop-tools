@@ -1,6 +1,6 @@
 {
   "name": "dsh-desktop-tools",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "license": "MIT",
   "description": "Desktop selection toolbar, floating assistant, screenshots, long screenshots and screen recording for DSH",
@@ -32,7 +32,7 @@
   ],
   "scripts": {
     "build": "node build-assets.mjs && tsdown --config-loader native && node build-client.mjs",
-    "test": "node --experimental-transform-types --no-warnings --test source/apps/desktop/src/desktop-tools-config.test.ts source/apps/desktop/src/koffi-platform.test.ts source/apps/desktop/src/capture-ui/stitch.test.ts source/apps/desktop/src/floating-context-menu.test.ts source/apps/desktop/src/floating-drag.test.ts source/apps/desktop/native-extension-runtime/helper-executable.test.ts source/apps/desktop/native-extension-runtime/desktop-tools-service.test.ts source/apps/desktop/src/desktop-diagnostics.test.ts source/apps/desktop/src/capture-shortcuts.test.ts source/apps/desktop/src/selection-archive.test.ts source/apps/desktop/src/selection-prompt.test.ts source/apps/desktop/src/selection-toolbar-config.test.ts source/apps/desktop/src/capture-pin-store.test.ts",
+    "test": "node --experimental-transform-types --no-warnings --test source/apps/desktop/src/desktop-tools-config.test.ts source/apps/desktop/src/koffi-platform.test.ts source/apps/desktop/src/capture-ui/stitch.test.ts source/apps/desktop/src/floating-context-menu.test.ts source/apps/desktop/src/floating-drag.test.ts source/apps/desktop/native-extension-runtime/helper-executable.test.ts source/apps/desktop/native-extension-runtime/desktop-tools-service.test.ts source/apps/desktop/src/desktop-diagnostics.test.ts source/apps/desktop/src/capture-shortcuts.test.ts source/apps/desktop/src/selection-archive.test.ts source/apps/desktop/src/selection-prompt.test.ts source/apps/desktop/src/selection-toolbar-config.test.ts source/apps/desktop/src/capture-pin-store.test.ts source/apps/desktop/src/capture-history-store.test.ts source/apps/desktop/src/dsh-locale.test.ts",
     "prepare": "npm run build"
   },
   "repository": {

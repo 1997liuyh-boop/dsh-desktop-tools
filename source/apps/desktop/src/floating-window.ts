@@ -511,7 +511,8 @@ export function presentOverlayWindow(window: BrowserWindow): void {
 
 export function createFloatingWindow(
   preload: string,
-  messages: DesktopMessages,
+  /** 每次弹出右键菜单时读取当前语言的文案，DSH 切换语言后立即生效。 */
+  messages: () => DesktopMessages,
   onOpenMain: () => void,
   actions: FloatingMenuActions,
   agents?: FloatingAgentMenuSource,
@@ -553,7 +554,7 @@ export function createFloatingWindow(
     void popupFloatingContextMenu(
       window,
       params,
-      messages,
+      messages(),
       onOpenMain,
       actions,
       agents,

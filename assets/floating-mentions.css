@@ -158,6 +158,9 @@
   width: calc(var(--spacing) * 9);
   height: calc(var(--spacing) * 9);
 }
+.h-0 {
+  height: 0px;
+}
 .h-9 {
   height: calc(var(--spacing) * 9);
 }

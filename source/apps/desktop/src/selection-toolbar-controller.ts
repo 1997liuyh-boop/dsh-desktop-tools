@@ -140,6 +140,19 @@ export class SelectionToolbarController {
 
 
 
+  /**
+   * 设置页保存后就地重读配置：更新工具栏按钮与语言、兼容取词开关，并按启用状态启动或暂停取词。
+   * 不重建工具栏窗口，已打开的结果窗不受影响。
+   */
+  reloadConfig(): void {
+    const previous = this.config
+    this.config = readSelectionToolbarConfig(this.profileDir)
+    if (this.config.compatibilityCopy !== previous.compatibilityCopy) this.monitor?.setCompatibilityCopy?.(this.config.compatibilityCopy ?? true)
+    if (this.config.enabled) this.start()
+    else this.stop()
+    this.publishState()
+  }
+
   setEnabled(enabled: boolean): void {
     this.writeConfig({ ...this.config, enabled })
     if (this.config.enabled) this.start()

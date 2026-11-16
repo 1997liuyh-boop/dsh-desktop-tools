@@ -113,6 +113,7 @@ export function defaultDesktopToolsConfig(platform: NodeJS.Platform = process.pl
       enabled: false, shortcut: DEFAULT_RECORDING_SHORTCUT, format: 'mp4', quality: 'hd',
       systemAudio: platform !== 'linux', microphone: false, knowledgeGraph: false,
     },
+    history: { enabled: true },
   }
 }
 
@@ -212,6 +213,8 @@ export function parseDesktopToolsConfig(value: unknown): DesktopToolsConfig {
       microphone: optionalBoolean(recording, 'microphone', false),
       knowledgeGraph: optionalBoolean(recording, 'knowledgeGraph', false),
     },
+    // 0.7 新增；旧配置没有这一项时默认开启。
+    history: { enabled: optionalBoolean(isRecord(value.history) ? value.history : {}, 'enabled', true) },
   }
 }
 

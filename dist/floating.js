@@ -1,6 +1,6 @@
 import { n as SCHEME, t as DESKTOP_IPC } from "./ipc-whBK8Kjb.js";
-import { _ as raiseOverlayAboveObservationFrame, a as applyFloatingOverlayGuard, c as moveFloatingBall, d as resetFloatingOverlayGuard, f as setFloatingExpanded, g as hideObservationFrame, h as createObservationFrameWindow, i as writeOrbAgentModels, l as overlayWindowExcludeIds, o as clampFloatingWindow, p as unsnapDockedBall, r as readOrbAgentModels, s as createFloatingWindow, t as isOrbAgentModelSelection, v as showObservationFrame } from "./orb-agent-models-D7Ei0jlZ.js";
-import { i as writeDesktopToolsConfig, r as readDesktopToolsConfig } from "./desktop-tools-config-A_wdY9X1.js";
+import { _ as raiseOverlayAboveObservationFrame, a as applyFloatingOverlayGuard, c as moveFloatingBall, d as resetFloatingOverlayGuard, f as setFloatingExpanded, g as hideObservationFrame, h as createObservationFrameWindow, i as writeOrbAgentModels, l as overlayWindowExcludeIds, o as clampFloatingWindow, p as unsnapDockedBall, r as readOrbAgentModels, s as createFloatingWindow, t as isOrbAgentModelSelection, v as showObservationFrame } from "./orb-agent-models-CfuNtLlv.js";
+import { i as writeDesktopToolsConfig, r as readDesktopToolsConfig } from "./desktop-tools-config-C0hCUcBZ.js";
 import { a as installOrbAvatarFromPath, c as orbSettingsSupported, d as serveOrbAvatar, o as orbAvatarCacheToken, r as assertOrbSettingsWritable, s as orbAvatarUrl, t as DEFAULT_ORB_AVATAR_FILE, u as restoreOrbAvatar } from "./orb-avatar-DgC5zfjx.js";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -161,7 +161,7 @@ async function activate(context) {
 	const currentDesktopLocale = () => environment.locale();
 	const mainWindow = environment.mainWindow();
 	const shellPreload = environment.preload;
-	const messages = currentDesktopLocale().messages;
+	currentDesktopLocale().messages;
 	let observationFrameWindow;
 	let sessionRunning = false;
 	let overlayTextEditing = false;
@@ -294,7 +294,7 @@ async function activate(context) {
 		const config = readDesktopToolsConfig(paths.profile);
 		return context.service("capture") !== void 0 && (config.screenshot.enabled || config.recording.enabled);
 	};
-	const floatingShell = context.own(createFloatingWindow(shellPreload, messages, () => {
+	const floatingShell = context.own(createFloatingWindow(shellPreload, () => environment.locale().messages, () => {
 		context.showMain();
 	}, {
 		capture: () => {
@@ -321,7 +321,10 @@ async function activate(context) {
 		pins: () => {
 			context.service("capture")?.pins.manage();
 		},
-		pinsEnabled: () => context.service("capture") !== void 0
+		pinsEnabled: () => context.service("capture") !== void 0,
+		history: () => {
+			context.service("capture")?.history.open();
+		}
 	}, {
 		backgroundSupported: !environment.standalone,
 		loadCatalog: loadFloatingModelCatalog,
@@ -341,6 +344,9 @@ async function activate(context) {
 		}
 	}));
 	const floatingWindow = floatingShell;
+	context.onConfig(() => {
+		if (!floatingShell.isDestroyed()) floatingShell.webContents.send(DESKTOP_IPC.floatingOverlayModel, readOrbAgentModels(paths.profile).overlay);
+	});
 	floatingWindow.once("ready-to-show", () => {
 		floatingWindow.showInactive();
 	});

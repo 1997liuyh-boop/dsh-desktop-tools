@@ -605,6 +605,9 @@ html[data-platform='darwin'] body[data-ds-dark-theme] {
   width: calc(var(--spacing) * 9);
   height: calc(var(--spacing) * 9);
 }
+.h-0 {
+  height: 0px;
+}
 .h-9 {
   height: calc(var(--spacing) * 9);
 }
@@ -1329,6 +1332,25 @@ button, input, textarea {
   display: flex;
   align-items: center;
   gap: 2px;
+}
+.history-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dsw-alias-label-tertiary);
+}
+.history-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+.history-notice {
+  margin: 0 0 12px;
 }
 @property --tw-rotate-x {
   syntax: "*";

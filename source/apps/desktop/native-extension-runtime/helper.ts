@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { DesktopFeatureHost, type DesktopFeaturePlugin } from '../src/desktop-feature-host.ts'
 import { DesktopExtensionLoader, parseDesktopExtensionEvent } from '../src/desktop-extensions.ts'
 import { resolveDesktopStartupLocale } from '../src/locale.ts'
-import { SCHEME } from '../src/ipc.ts'
+import { DESKTOP_IPC, SCHEME } from '../src/ipc.ts'
 import { serveWebDocument } from '../src/web-document.ts'
 import { NativeTransport } from './transport.ts'
 
@@ -23,7 +23,9 @@ async function main(): Promise<void> {
   const profile = process.argv.find(value => value.startsWith('--dsh-profile='))?.slice('--dsh-profile='.length)
   if (!profile) throw new Error('Missing DSH profile directory')
   const transport = new NativeTransport(send)
-  const locale = resolveDesktopStartupLocale(null, app.getPreferredSystemLanguages())
+  // 优先使用 DSH 的语言偏好（Host 启动时传入），未设置时跟随系统语言。
+  const startupPreference = process.argv.find(value => value.startsWith('--dsh-locale='))?.slice('--dsh-locale='.length)
+  let locale = resolveDesktopStartupLocale(startupPreference || null, app.getPreferredSystemLanguages())
   let tray: Tray | undefined
   const refreshMenu = (): void => {
     tray?.setContextMenu(Menu.buildFromTemplate(features.menuItems()))
@@ -104,10 +106,11 @@ async function main(): Promise<void> {
           }
           const input = message.input
           let value: unknown
-          if (message.command === 'capture-open' && 'mode' in input && (input.mode === 'image' || input.mode === 'video' || input.mode === 'long' || input.mode === 'pins')) {
+          if (message.command === 'capture-open' && 'mode' in input && (input.mode === 'image' || input.mode === 'video' || input.mode === 'long' || input.mode === 'pins' || input.mode === 'history')) {
             const capture = features.service('capture')
             if (capture === undefined) throw new Error('截图录屏功能尚未启用')
             if (input.mode === 'pins') capture.pins.manage()
+            else if (input.mode === 'history') capture.history.open()
             else void capture.open(input.mode).catch((error: unknown) => { console.error('截图录屏启动失败', error) })
           } else if (message.command === 'permissions-status') {
             value = features.service('orb')?.systemPermissions()
@@ -117,6 +120,19 @@ async function main(): Promise<void> {
             const orb = features.service('orb')
             if (orb === undefined) throw new Error('悬浮球功能尚未启用')
             value = await orb.openSystemPermission(input.right)
+          } else if (message.command === 'config-changed') {
+            features.configChanged()
+          } else if (message.command === 'locale-changed') {
+            const preference = 'preference' in input && typeof input.preference === 'string' && input.preference.length <= 32 ? input.preference : null
+            locale = resolveDesktopStartupLocale(preference, app.getPreferredSystemLanguages())
+            features.localeChanged()
+            refreshMenu()
+            // 已打开的窗口收到通知后自行刷新文案；新窗口打开时会读取最新语言。
+            for (const window of BrowserWindow.getAllWindows()) {
+              if (!window.isDestroyed()) window.webContents.send(DESKTOP_IPC.localeChanged, locale)
+            }
+          } else if (message.command === 'history-changed') {
+            features.service('capture')?.history.changed()
           } else if (message.command === 'shortcuts-status') {
             const capture = features.service('capture')
             if (capture === undefined) throw new Error('截图录屏功能尚未启用')

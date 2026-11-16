@@ -1,7 +1,8 @@
 import { t as DESKTOP_IPC } from "./ipc-whBK8Kjb.js";
 import { t as loadKoffiPlatform } from "./koffi-platform-C2YCpT9s.js";
 import { a as composeCaptureAskPrompt, f as writeClipboardPng, i as DESKTOP_SELECTION_PREAMBLE, r as submitSelectionPrompt, s as composeSelectionTranslatePrompt, t as SelectionSessionTask } from "./selection-session-M4SY_0MA.js";
-import { r as readDesktopToolsConfig } from "./desktop-tools-config-A_wdY9X1.js";
+import { n as newHistoryId, t as HistoryStore } from "./capture-history-store-t4vXVh7L.js";
+import { r as readDesktopToolsConfig } from "./desktop-tools-config-C0hCUcBZ.js";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";
@@ -238,6 +239,10 @@ var DesktopCapture = class {
 	pins = /* @__PURE__ */ new Map();
 	/** 钉图管理窗；同一时间只有一个。 */
 	manager;
+	/** 截图历史窗；同一时间只有一个。 */
+	historyWindow;
+	/** 历史缩略图缓存（data URL），按记录 id。 */
+	historyThumbs = /* @__PURE__ */ new Map();
 	results = /* @__PURE__ */ new Map();
 	cleanups = /* @__PURE__ */ new Set();
 	timers = /* @__PURE__ */ new Set();
@@ -252,6 +257,46 @@ var DesktopCapture = class {
 	}
 	get pinStore() {
 		return new PinStore(join(this.host.directory, "desktop-tools", "pins"));
+	}
+	get historyStore() {
+		return new HistoryStore(join(this.host.directory, "desktop-tools", "history"));
+	}
+	/**
+	* 记录一条截图 / 录屏历史；设置中关闭历史或写盘失败时静默跳过，不影响截图本身。
+	* @param entry 类型、文字、问题、用户保存的文件。
+	* @param png 图片；超过 16 MB 时缩到宽 2000 再保存。
+	*/
+	record(entry, png) {
+		if (!this.host.config().history.enabled) return;
+		try {
+			let image = png;
+			let size;
+			if (image !== void 0) {
+				let native = nativeImage.createFromBuffer(image);
+				if (image.byteLength > 16e6) {
+					native = native.resize({ width: 2e3 });
+					image = native.toPNG();
+				}
+				size = native.getSize();
+			}
+			const item = {
+				id: newHistoryId(),
+				createdAt: Date.now(),
+				kind: entry.kind,
+				image: image !== void 0,
+				...size === void 0 ? {} : {
+					width: size.width,
+					height: size.height
+				},
+				...entry.text === void 0 || entry.text.trim() === "" ? {} : { text: entry.text },
+				...entry.question === void 0 ? {} : { question: entry.question },
+				...entry.file === void 0 ? {} : { file: entry.file }
+			};
+			this.historyStore.add(item, image);
+			this.historyChanged();
+		} catch (error) {
+			console.warn("截图历史保存失败", error);
+		}
 	}
 	window(options) {
 		const window = new BrowserWindow({
@@ -360,10 +405,15 @@ var DesktopCapture = class {
 			const result = this.results.get(event.sender.id);
 			const entry = this.entries.get(event.sender.id);
 			const fromManager = this.manager !== void 0 && !this.manager.isDestroyed() && this.manager.webContents.id === event.sender.id;
+			const fromHistory = this.historyWindow !== void 0 && !this.historyWindow.isDestroyed() && this.historyWindow.webContents.id === event.sender.id;
 			try {
 				if (fromManager) return {
 					ok: true,
 					value: await this.invokeManager(operation, value)
+				};
+				if (fromHistory) return {
+					ok: true,
+					value: await this.invokeHistory(operation, value)
 				};
 				if (pin) return {
 					ok: true,
@@ -397,6 +447,7 @@ var DesktopCapture = class {
 				item.window.destroy();
 			}
 			if (this.manager !== void 0 && !this.manager.isDestroyed()) this.manager.destroy();
+			if (this.historyWindow !== void 0 && !this.historyWindow.isDestroyed()) this.historyWindow.destroy();
 			for (const item of [...this.pins.values()]) {
 				clearTimeout(item.saveTimer);
 				item.window.destroy();
@@ -409,7 +460,8 @@ var DesktopCapture = class {
 	owns(event) {
 		const id = event.sender.id;
 		const manager = this.manager !== void 0 && !this.manager.isDestroyed() && this.manager.webContents.id === id;
-		return (this.entries.has(id) || this.pins.has(id) || this.results.has(id) || manager) && event.senderFrame === event.sender.mainFrame;
+		const history = this.historyWindow !== void 0 && !this.historyWindow.isDestroyed() && this.historyWindow.webContents.id === id;
+		return (this.entries.has(id) || this.pins.has(id) || this.results.has(id) || manager || history) && event.senderFrame === event.sender.mainFrame;
 	}
 	armed(entry) {
 		return entry.file !== void 0 && entry.started > 0 || entry.long?.armed === true;
@@ -422,6 +474,7 @@ var DesktopCapture = class {
 	async save(entry) {
 		if (!entry.pending || !entry.path) throw new Error("No capture to save");
 		const copied = entry.copied;
+		const savingVideo = entry.pending === "video";
 		let temporary;
 		try {
 			const extension = entry.format;
@@ -450,6 +503,10 @@ var DesktopCapture = class {
 			entry.path = void 0;
 			entry.pending = void 0;
 			entry.settle(path);
+			if (savingVideo) this.record({
+				kind: "recording",
+				file: path
+			});
 			if (resolve(source) !== resolve(path)) await rm(source, { force: true }).catch((error) => {
 				console.warn("desktop capture temporary cleanup:", error);
 			});
@@ -585,8 +642,10 @@ var DesktopCapture = class {
 			case "image-data": {
 				if (entry.path || entry.file) throw new Error("Invalid screenshot data");
 				const png = pngFrom(value.data);
+				const imageKind = entry.long === void 0 ? "image" : "long";
 				if (value.copy === true) {
 					await writeClipboardPng(png);
+					this.record({ kind: imageKind }, png);
 					return { copied: true };
 				}
 				await mkdir(directory, { recursive: true });
@@ -607,7 +666,13 @@ var DesktopCapture = class {
 				entry.path = path;
 				entry.pending = "image";
 				entry.format = "png";
-				return this.save(entry);
+				const saved = await this.save(entry);
+				const savedPath = saved.path;
+				if (typeof savedPath === "string") this.record({
+					kind: imageKind,
+					file: savedPath
+				}, png);
+				return saved;
 			}
 			case "pin": {
 				const png = pngFrom(value.data);
@@ -623,6 +688,7 @@ var DesktopCapture = class {
 						width,
 						height
 					});
+					this.record({ kind: "long" }, png);
 					return;
 				}
 				const box = rectangle(value.bounds);
@@ -632,6 +698,7 @@ var DesktopCapture = class {
 					x: box.x + entry.desktop.x,
 					y: box.y + entry.desktop.y
 				});
+				this.record({ kind: "image" }, png);
 				return;
 			}
 			case "analyze": {
@@ -665,6 +732,10 @@ var DesktopCapture = class {
 						model: config.selection.model
 					});
 					this.host.showMain();
+					this.record({
+						kind: entry.long === void 0 ? "image" : "long",
+						text: note
+					}, png);
 					return { sessionId };
 				} catch (error) {
 					const message = error instanceof Error ? error.message : String(error);
@@ -1091,6 +1162,141 @@ var DesktopCapture = class {
 		});
 		window.loadURL("dsh-app://shell/capture-pins.html");
 	}
+	/** 打开截图历史窗；已打开时置于最前。 */
+	openHistory() {
+		if (this.historyWindow !== void 0 && !this.historyWindow.isDestroyed()) {
+			this.historyWindow.show();
+			this.historyWindow.moveTop();
+			this.historyWindow.focus();
+			return;
+		}
+		const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+		const width = Math.min(760, area.width - 48), height = Math.min(600, area.height - 48);
+		const window = this.window({
+			x: area.x + Math.round((area.width - width) / 2),
+			y: area.y + Math.round((area.height - height) / 2),
+			width,
+			height,
+			resizable: true,
+			movable: true,
+			alwaysOnTop: false,
+			minWidth: 380,
+			minHeight: 300,
+			frame: false,
+			skipTaskbar: false
+		});
+		this.historyWindow = window;
+		window.once("closed", () => {
+			if (this.historyWindow === window) this.historyWindow = void 0;
+		});
+		window.once("ready-to-show", () => {
+			window.show();
+			window.moveTop();
+			window.focus();
+		});
+		window.loadURL("dsh-app://shell/capture-history.html");
+	}
+	/** 历史有变化（新增、删除、清空，或 Host 清空后通知）：刷新已打开的历史窗。 */
+	historyChanged() {
+		if (this.historyWindow === void 0 || this.historyWindow.isDestroyed()) return;
+		this.historyWindow.webContents.send(DESKTOP_IPC.captureEvent, {
+			type: "history-changed",
+			entries: this.historySummaries()
+		});
+	}
+	/** @returns 历史记录与缩略图，供历史窗展示。 */
+	historySummaries() {
+		const store = this.historyStore;
+		const entries = store.list();
+		const live = new Set(entries.map((entry) => entry.id));
+		for (const id of this.historyThumbs.keys()) if (!live.has(id)) this.historyThumbs.delete(id);
+		return entries.map((entry) => {
+			let thumb = "";
+			if (entry.image) {
+				thumb = this.historyThumbs.get(entry.id) ?? "";
+				if (thumb === "") try {
+					const image = nativeImage.createFromBuffer(store.readImage(entry.id));
+					thumb = image.resize({ width: Math.min(240, image.getSize().width) }).toDataURL();
+					this.historyThumbs.set(entry.id, thumb);
+				} catch {
+					thumb = "";
+				}
+			}
+			return {
+				...entry,
+				thumb,
+				enabled: this.host.config().history.enabled
+			};
+		});
+	}
+	historyEntry(id) {
+		const entry = typeof id === "string" ? this.historyStore.list().find((item) => item.id === id) : void 0;
+		if (entry === void 0) throw new Error("历史记录不存在");
+		return entry;
+	}
+	/** 截图历史窗的操作。 */
+	async invokeHistory(operation, value) {
+		switch (operation) {
+			case "history-init": return {
+				entries: this.historySummaries(),
+				enabled: this.host.config().history.enabled,
+				directory: join(this.host.directory, "desktop-tools", "history")
+			};
+			case "history-copy-image": {
+				const entry = this.historyEntry(value.id);
+				if (!entry.image) throw new Error("这条记录没有图片");
+				await writeClipboardPng(this.historyStore.readImage(entry.id));
+				return;
+			}
+			case "history-copy-text": {
+				const entry = this.historyEntry(value.id);
+				clipboard.writeText(entry.text ?? "");
+				return;
+			}
+			case "history-ask": {
+				const entry = this.historyEntry(value.id);
+				if (!entry.image) throw new Error("这条记录没有图片");
+				this.openResult("ask", [this.historyStore.readImage(entry.id)], [], entry.kind === "long");
+				return;
+			}
+			case "history-pin": {
+				const entry = this.historyEntry(value.id);
+				if (!entry.image) throw new Error("这条记录没有图片");
+				const png = this.historyStore.readImage(entry.id);
+				const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+				const size = nativeImage.createFromBuffer(png).getSize();
+				const scale = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).scaleFactor || 1;
+				const ratio = Math.min(1 / scale, area.width * .8 / size.width, area.height * .8 / size.height);
+				const width = Math.max(24, Math.round(size.width * ratio)), height = Math.max(24, Math.round(size.height * ratio));
+				this.openPin(png, {
+					x: area.x + Math.round((area.width - width) / 2),
+					y: area.y + Math.round((area.height - height) / 2),
+					width,
+					height
+				});
+				return;
+			}
+			case "history-reveal": {
+				const entry = this.historyEntry(value.id);
+				if (entry.file === void 0) throw new Error("这条记录没有保存到磁盘的文件");
+				shell.showItemInFolder(entry.file);
+				return;
+			}
+			case "history-delete":
+				this.historyStore.remove(this.historyEntry(value.id).id);
+				this.historyChanged();
+				return;
+			case "history-clear":
+				this.historyStore.clear();
+				this.historyThumbs.clear();
+				this.historyChanged();
+				return;
+			case "history-window-close":
+				this.historyWindow?.close();
+				return;
+			default: throw new Error("Unknown history operation");
+		}
+	}
 	/** 钉图变化：刷新管理窗与托盘菜单。 */
 	pinsChanged() {
 		if (this.manager !== void 0 && !this.manager.isDestroyed()) this.manager.webContents.send(DESKTOP_IPC.captureEvent, {
@@ -1282,6 +1488,7 @@ var DesktopCapture = class {
 			entry.task?.stop().catch((error) => {
 				console.warn("capture result task stop:", error);
 			});
+			this.recordResult(entry);
 		});
 		window.loadURL("dsh-app://shell/capture-result.html");
 		window.once("ready-to-show", () => {
@@ -1289,6 +1496,30 @@ var DesktopCapture = class {
 			window.moveTop();
 		});
 		this.analyze(entry);
+	}
+	/** 结果窗关闭时把最终内容记入历史；没有任何结果（识别失败、未提问）时不记录。 */
+	recordResult(entry) {
+		const answer = entry.state?.phase === "done" ? entry.state.text : "";
+		if (entry.kind === "ask") {
+			const turns = [...entry.history, ...entry.question !== void 0 && answer.trim() !== "" ? [{
+				question: entry.question,
+				answer
+			}] : []];
+			if (turns.length === 0) return;
+			const text = turns.map((turn) => `${turn.question}\n\n${turn.answer}`).join("\n\n---\n\n");
+			this.record({
+				kind: "ask",
+				question: turns[0].question,
+				text
+			}, entry.images[0]);
+			return;
+		}
+		const text = entry.kind === "ocr" ? entry.text : answer;
+		if (text.trim() === "") return;
+		this.record({
+			kind: entry.kind,
+			text
+		}, entry.images[0]);
 	}
 	publish(entry) {
 		if (entry.window.isDestroyed()) return;
@@ -1566,6 +1797,8 @@ const shellAssets = [
 	"/capture-result.css",
 	"/capture-pins.html",
 	"/capture-pins.js",
+	"/capture-history.html",
+	"/capture-history.js",
 	"/mermaid.min.js",
 	"/selection-markdown.js",
 	"/shell-theme.js",
@@ -1574,7 +1807,7 @@ const shellAssets = [
 /** @param context 当前安装包的原生资源作用域。 */
 function activate(context) {
 	const environment = context.environment;
-	const config = readDesktopToolsConfig(environment.profile);
+	let config = readDesktopToolsConfig(environment.profile);
 	const capture = new DesktopCapture({
 		directory: environment.profile,
 		preload: environment.preload,
@@ -1617,38 +1850,55 @@ function activate(context) {
 			manage: () => {
 				capture.openPinsManager();
 			}
+		},
+		history: {
+			open: () => {
+				capture.openHistory();
+			},
+			changed: () => {
+				capture.historyChanged();
+			}
 		}
 	});
 	context.registerSender((event) => capture.owns(event));
 	capture.restorePins();
-	shortcutStatus = registerCaptureShortcuts([
-		{
-			accelerator: config.screenshot.shortcut,
-			mode: "image",
-			enabled: config.screenshot.enabled
-		},
-		{
-			accelerator: config.screenshot.longShortcut,
-			mode: "long",
-			enabled: config.screenshot.enabled
-		},
-		{
-			accelerator: config.screenshot.pinsShortcut,
-			mode: "pins",
-			enabled: config.screenshot.enabled
-		},
-		{
-			accelerator: config.recording.shortcut,
-			mode: "video",
-			enabled: config.recording.enabled
-		}
-	], (accelerator, mode) => globalShortcut.register(accelerator, () => {
-		launch(mode);
-	}));
-	for (const { accelerator, reason } of shortcutStatus.failed) console.warn(reason === "occupied" ? `截图录屏快捷键已被其他程序占用: ${accelerator}` : `截图录屏快捷键无效: ${accelerator}`);
-	const registered = shortcutStatus.registered;
+	/** 系统级快捷键：DSH 主窗口不在前台时同样可以唤起。重复调用会先注销上一次注册的组合。 */
+	const registerShortcuts = () => {
+		for (const accelerator of shortcutStatus.registered) globalShortcut.unregister(accelerator);
+		shortcutStatus = registerCaptureShortcuts([
+			{
+				accelerator: config.screenshot.shortcut,
+				mode: "image",
+				enabled: config.screenshot.enabled
+			},
+			{
+				accelerator: config.screenshot.longShortcut,
+				mode: "long",
+				enabled: config.screenshot.enabled
+			},
+			{
+				accelerator: config.screenshot.pinsShortcut,
+				mode: "pins",
+				enabled: config.screenshot.enabled
+			},
+			{
+				accelerator: config.recording.shortcut,
+				mode: "video",
+				enabled: config.recording.enabled
+			}
+		], (accelerator, mode) => globalShortcut.register(accelerator, () => {
+			launch(mode);
+		}));
+		for (const { accelerator, reason } of shortcutStatus.failed) console.warn(reason === "occupied" ? `截图录屏快捷键已被其他程序占用: ${accelerator}` : `截图录屏快捷键无效: ${accelerator}`);
+	};
+	registerShortcuts();
 	context.effect(() => {
-		for (const accelerator of registered) globalShortcut.unregister(accelerator);
+		for (const accelerator of shortcutStatus.registered) globalShortcut.unregister(accelerator);
+	});
+	context.onConfig(() => {
+		config = readDesktopToolsConfig(environment.profile);
+		registerShortcuts();
+		environment.changed();
 	});
 	const messages = () => environment.locale().messages;
 	context.menu(() => {
@@ -1704,7 +1954,13 @@ function activate(context) {
 					launch("video");
 				}
 			}] : [],
-			...pins
+			...pins,
+			{
+				label: messages().captureHistoryOpen,
+				click: () => {
+					capture.openHistory();
+				}
+			}
 		];
 	});
 }

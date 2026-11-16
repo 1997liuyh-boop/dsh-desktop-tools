@@ -48,6 +48,8 @@ export interface FloatingMenuActions {
   readonly pins?: () => void
   /** 钉图管理是否可用（截图录屏功能正在运行）。 */
   readonly pinsEnabled?: () => boolean
+  /** 打开截图历史窗；省略时菜单中不显示该项，可用状态与钉图管理相同。 */
+  readonly history?: () => void
 }
 
 /** 按快捷工具、主窗口、设置三组生成悬浮球原生菜单。 */
@@ -80,6 +82,7 @@ export function floatingContextMenuTemplate(
     { label: messages.captureTitle, enabled: actions.captureEnabled(), click: actions.capture },
     { label: messages.floatingWechat, enabled: actions.wechatEnabled(), click: actions.wechat },
     ...(actions.pins === undefined ? [] : [{ label: messages.capturePinsManage, enabled: actions.pinsEnabled?.() ?? true, click: actions.pins }]),
+    ...(actions.history === undefined ? [] : [{ label: messages.captureHistoryOpen, enabled: actions.pinsEnabled?.() ?? true, click: actions.history }]),
     { type: 'separator' },
     { label: messages.floatingOpenMain, click: onOpenMain },
     { type: 'separator' },

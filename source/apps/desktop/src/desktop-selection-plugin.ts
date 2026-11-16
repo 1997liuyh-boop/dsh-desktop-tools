@@ -88,6 +88,8 @@ export async function activate(context: DesktopFeatureContext): Promise<void> {
     requireToolbar(event).setLanguage(language)
   })
   context.handle(DESKTOP_IPC.selectionInteract, (event) => { requireToolbar(event) })
+  // 设置页保存后就地重读配置，托盘中的启用勾选随之刷新。
+  context.onConfig(() => { selectionController.reloadConfig(); environment.changed() })
   context.handle(DESKTOP_IPC.selectionItems, event => requireToolbar(event).toolbarItems())
   context.handle(DESKTOP_IPC.selectionSetContentSize, (event, size: unknown) => {
     if (typeof size !== 'object' || size === null || !('width' in size) || !('height' in size)

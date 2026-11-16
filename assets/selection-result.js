@@ -4,8 +4,8 @@ const MODEL_ACTIONS = ['translate', 'explain', 'custom']
 const element = id => document.getElementById(id)
 
 void (async () => {
-  const { messages, locale } = await window.dshDesktop.locale()
-  document.documentElement.lang = locale?.startsWith('zh') ? 'zh-CN' : 'en'
+  const { messages, id: locale } = await window.dshDesktop.locale()
+  document.documentElement.lang = locale ?? 'en'
   let initial
   let output = ''
   let savedPath

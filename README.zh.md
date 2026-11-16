@@ -12,7 +12,7 @@
 https://github.com/1997liuyh-boop/dsh-desktop-tools.git
 ```
 
-选择精确标签 `0.6.0`。插件已经包含辅助进程、预加载脚本、原生功能模块、静态资源和设置页，不需要再安装 `dsh-desktop-runtime`、`dsh-selection-toolbar`、`dsh-floating-ball` 或 `dsh-capture`。
+选择精确标签 `0.7.0`。插件已经包含辅助进程、预加载脚本、原生功能模块、静态资源和设置页，不需要再安装 `dsh-desktop-runtime`、`dsh-selection-toolbar`、`dsh-floating-ball` 或 `dsh-capture`。
 
 安装不依赖 Electron 的 `path.txt`，也不使用 `koffi` 安装脚本。辅助进程会加载对应平台的 Koffi 预编译包。
 
@@ -75,7 +75,7 @@ DSH 插件管理器不支持插件之间的自动联动安装，可以用以下�
 
 ## 替换旧插件
 
-如果 profile 中已经安装了旧插件，请先移除 `dsh-selection-toolbar`、`dsh-floating-ball`、`dsh-capture` 和 `dsh-desktop-runtime`，再安装 `dsh-desktop-tools@0.6.0` 并重启 Host。新插件将配置保存在 `desktop-tools.json`，不会导入旧插件各自的配置文件。默认启用划词工具栏和悬浮球，关闭截图和录屏。
+如果 profile 中已经安装了旧插件，请先移除 `dsh-selection-toolbar`、`dsh-floating-ball`、`dsh-capture` 和 `dsh-desktop-runtime`，再安装 `dsh-desktop-tools@0.7.0` 并重启 Host。新插件将配置保存在 `desktop-tools.json`，不会导入旧插件各自的配置文件。默认启用划词工具栏和悬浮球，关闭截图和录屏。
 
 ## 设置
 
@@ -88,6 +88,12 @@ DSH 设置中会增加一个“桌面工具”入口，下设五个子菜单：
 - 诊断：逐项检查配置文件、辅助进程使用的 Electron（路径以及与 DSH 的版本是否一致）、Koffi 原生模块、辅助进程与各项功能、全局快捷键注册、dsh-vision-router 以及 macOS 系统权限。每项显示「正常 / 需要注意 / 异常 / 不适用」，可以直接在该项上重启辅助进程、安装或启用 dsh-vision-router、打开系统权限设置。「复制诊断报告」会复制一份纯文本报告，可附在问题反馈中。
 
 快捷键为系统级全局快捷键，被其他程序占用时不会注册（「诊断」页会列出），请换一个组合。首次安装默认启用划词工具栏和悬浮球，关闭截图和录屏。配置保存在 profile 的 `desktop-tools.json` 中，每次保存都会分别报告持久化结果和辅助进程的实际应用状态。
+
+保存设置时只启停开关发生变化的功能，其余功能就地读取新配置（快捷键重新注册、划词按钮与语言、录屏默认值等立即生效），已打开的结果窗、悬浮球对话和钉图都不会被关闭。例如关闭截图只会关闭截图相关的窗口。诊断页的「重启辅助进程」仍会整体重建。
+
+桌面工具的界面语言跟随 DSH 的语言设置：在 DSH 中切换语言后，托盘菜单、悬浮球右键菜单、划词工具栏和之后打开的窗口立即使用新语言；悬浮球面板在下次启动时更新。
+
+截图历史（默认开启）：复制、保存、钉图、转发的截图，提取文字 / 翻译 / 知识图谱 / 提问的结果，以及保存的录屏路径，会记录在 profile 的 `desktop-tools/history/` 中（最多 100 条）。从托盘「截图历史…」、悬浮球右键菜单或设置页打开历史窗，可以复制图片或文字、再次提问、钉到桌面、打开所在文件夹、删除或全部清空；在「设置 → 桌面工具 → 截图」中可以关闭记录或清空历史，清空不会删除你自己保存的文件。
 
 ## 构建
 

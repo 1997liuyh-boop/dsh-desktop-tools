@@ -1,6 +1,7 @@
 import { i as installOrbAvatarFromBytes, l as readCustomOrbAvatarDataUrl, u as restoreOrbAvatar } from "./orb-avatar-DgC5zfjx.js";
-import { i as writeDesktopToolsConfig, n as parseDesktopToolsConfig, r as readDesktopToolsConfig, t as DESKTOP_TOOLS_CONFIG_FILE } from "./desktop-tools-config-A_wdY9X1.js";
+import { i as writeDesktopToolsConfig, n as parseDesktopToolsConfig, r as readDesktopToolsConfig, t as DESKTOP_TOOLS_CONFIG_FILE } from "./desktop-tools-config-C0hCUcBZ.js";
 import { n as locateKoffiPlatform } from "./koffi-platform-C2YCpT9s.js";
+import { t as HistoryStore } from "./capture-history-store-t4vXVh7L.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
@@ -512,7 +513,7 @@ var DesktopToolsController = class {
 				}
 			};
 			writeDesktopToolsConfig(this.options.profileDir, this.config);
-			return this.reconcile();
+			return this.apply();
 		});
 	}
 	/** @param input 完整的新配置。 @returns 保存与应用结果。 */
@@ -521,7 +522,7 @@ var DesktopToolsController = class {
 		writeDesktopToolsConfig(this.options.profileDir, config);
 		this.config = config;
 		try {
-			const snapshot = await this.exclusive(() => this.reconcile());
+			const snapshot = await this.exclusive(() => this.apply());
 			const applied = this.isApplied(snapshot);
 			const failed = applied ? (await this.readShortcuts())?.status?.failed ?? [] : [];
 			return {
@@ -542,6 +543,22 @@ var DesktopToolsController = class {
 	/** @returns 重新创建辅助进程后的状态。 */
 	restart() {
 		return this.exclusive(() => this.reconcile());
+	}
+	/**
+	* 清空截图历史。直接在 Host 中删除目录，截图录屏未运行时也能清空；之后通知已打开的历史窗刷新。
+	* @returns 清空结果。
+	*/
+	async clearHistory() {
+		new HistoryStore(join(this.options.profileDir, "desktop-tools", "history")).clear();
+		if (this.runtime !== void 0 && this.statuses.get("capture")?.phase === "active") await this.runtime.command("history-changed", {}).catch((error) => {
+			this.options.ctx.logger.warn("通知历史窗刷新失败: %s", errorText(error));
+		});
+		return { cleared: true };
+	}
+	/** @param preference DSH 新的语言偏好；辅助进程未运行时忽略，下次启动会读取最新值。 */
+	async localeChanged(preference) {
+		if (this.runtime === void 0 || this.releases.size === 0) return;
+		await this.runtime.command("locale-changed", { preference });
 	}
 	/** @returns 重新读取前置视觉插件状态后的快照。 */
 	async refreshedSnapshot() {
@@ -664,7 +681,7 @@ var DesktopToolsController = class {
 	}
 	/** @param mode 截图、录屏或长截图。 */
 	async openCapture(mode) {
-		if (!(mode === "pins" ? this.config.screenshot.enabled || this.config.recording.enabled : mode === "video" ? this.config.recording.enabled : this.config.screenshot.enabled)) throw new Error(mode === "video" ? "录屏功能未启用" : "截图功能未启用");
+		if (!(mode === "pins" || mode === "history" ? this.config.screenshot.enabled || this.config.recording.enabled : mode === "video" ? this.config.recording.enabled : this.config.screenshot.enabled)) throw new Error(mode === "video" ? "录屏功能未启用" : "截图功能未启用");
 		if (this.statuses.get("capture")?.phase !== "active" || this.runtime === void 0) throw new Error("截图录屏功能尚未就绪");
 		await this.runtime.command("capture-open", { mode });
 	}
@@ -743,6 +760,37 @@ var DesktopToolsController = class {
 		const result = this.queue.then(operation);
 		this.queue = result.then(() => void 0, () => void 0);
 		return result;
+	}
+	/**
+	* 按配置差异更新：只启停开关发生变化的功能，仍在运行的功能就地重读配置，不关闭已打开的窗口。
+	* 辅助进程未运行、状态异常或任一步失败时，回退为整体重建。
+	*/
+	async apply() {
+		if (this.closed) throw new Error("桌面工具控制器已关闭");
+		const runtime = this.runtime;
+		const healthy = runtime !== void 0 && this.runtimeError === void 0 && FEATURE_ORDER.every((id) => this.statuses.get(id)?.phase !== "error" && this.statuses.get(id)?.phase !== "starting");
+		const wanted = new Set(this.enabledFeatures());
+		if (!healthy || wanted.size === 0) return this.reconcile();
+		try {
+			for (const id of [...FEATURE_ORDER].reverse()) {
+				const release = this.releases.get(id);
+				if (release === void 0 || wanted.has(id)) continue;
+				await release();
+				this.releases.delete(id);
+				this.statuses.set(id, { phase: "disabled" });
+			}
+			if (this.releases.size > 0) await runtime.command("config-changed", {});
+			for (const id of FEATURE_ORDER) {
+				if (!wanted.has(id) || this.releases.has(id)) continue;
+				this.statuses.set(id, { phase: "starting" });
+				this.releases.set(id, await runtime.activate(this.descriptor(id)));
+			}
+			for (const id of this.releases.keys()) this.statuses.set(id, { phase: id === "selection" && !this.config.selection.enabled ? "disabled" : "active" });
+			return this.snapshot();
+		} catch (error) {
+			this.options.ctx.logger.warn("桌面工具按需更新失败，改为整体重建: %s", errorText(error));
+			return this.reconcile();
+		}
 	}
 	async reconcile() {
 		if (this.closed) throw new Error("桌面工具控制器已关闭");
@@ -846,6 +894,7 @@ const REMOTE_METHODS = [
 	"restart",
 	"openCapture",
 	"diagnose",
+	"clearHistory",
 	"avatar",
 	"setAvatar",
 	"restoreAvatar",
@@ -910,6 +959,10 @@ var DesktopToolsService = class extends TypertRemoteService {
 	/** @returns 逐项诊断结果与运行环境摘要。 */
 	diagnose() {
 		return this.controller.diagnose();
+	}
+	/** @returns 清空截图历史的结果。 */
+	clearHistory() {
+		return this.controller.clearHistory();
 	}
 	/** @param mode 截图、录屏或长截图。 */
 	async openCapture(mode) {
@@ -1129,6 +1182,26 @@ function createNativeHostBridge(ctx, send) {
 		}
 	};
 }
+// source/apps/desktop/src/dsh-locale.ts
+/** 从 DSH 设置服务的描述中取出界面语言偏好（不依赖 electron，便于单测）。 */
+/** 语言 id：如 zh、en、ja，或带地区的 zh-CN。 */
+const LOCALE_ID = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$/u;
+/**
+* @param descriptors `settings.describe()` 的返回值。
+* @returns `ns === 'locale'` 项中的 `value.preference`；未设置、格式不对或结构不符时返回 null（表示跟随系统语言）。
+*/
+function dshLocalePreference(descriptors) {
+	if (!Array.isArray(descriptors)) return null;
+	for (const item of descriptors) {
+		if (typeof item !== "object" || item === null) continue;
+		const record = item;
+		if (record.ns !== "locale") continue;
+		const value = record.value;
+		const preference = typeof value === "object" && value !== null ? value.preference : void 0;
+		return typeof preference === "string" && LOCALE_ID.test(preference) ? preference : null;
+	}
+	return null;
+}
 // source/apps/desktop/native-extension-runtime/index.ts
 /** 官方 DSH 通过可注入服务管理独立原生插件，不依赖桌面扩展 API。 */
 /** 原生插件共用的 Electron 进程；每个插件独立等待激活和释放回执。 */
@@ -1137,6 +1210,7 @@ var NativeRuntime = class {
 	config;
 	onFailure;
 	onDisableFeature;
+	localePreference;
 	child;
 	started;
 	closed = false;
@@ -1148,11 +1222,12 @@ var NativeRuntime = class {
 	disposing;
 	helperElectron;
 	/** @param ctx 官方服务与当前配置目录。 @param config 进程等待时限与可执行文件覆盖。 */
-	constructor(ctx, config, onFailure, onDisableFeature) {
+	constructor(ctx, config, onFailure, onDisableFeature, localePreference) {
 		this.ctx = ctx;
 		this.config = config;
 		this.onFailure = onFailure;
 		this.onDisableFeature = onDisableFeature;
+		this.localePreference = localePreference;
 		this.bridge = createNativeHostBridge(ctx, (message) => this.send(message));
 	}
 	/** @param descriptor 安装包拥有的入口和资源。 @returns 仅释放本插件的操作。 */
@@ -1233,7 +1308,11 @@ var NativeRuntime = class {
 		this.ctx.logger.info("桌面工具辅助进程使用：%s", executable);
 		if (this.closed) throw new Error("Native desktop runtime was disabled before launch");
 		const environment = Object.fromEntries(Object.entries(process.env).filter(([key, value]) => value !== void 0 && !/KEY|SECRET|TOKEN|PASSWORD|ELECTRON_RUN_AS_NODE|NODE_OPTIONS|NODE_PATH/iu.test(key)));
-		const child = spawn(executable, [join(dirname(fileURLToPath(import.meta.url)), "helper.js"), `--dsh-profile=${resolve(this.ctx.profileContext.dir)}`], {
+		const preference = await this.localePreference?.().catch(() => null) ?? null;
+		if (this.closed) throw new Error("Native desktop runtime was disabled before launch");
+		const args = [join(dirname(fileURLToPath(import.meta.url)), "helper.js"), `--dsh-profile=${resolve(this.ctx.profileContext.dir)}`];
+		if (preference !== null) args.push(`--dsh-locale=${preference}`);
+		const child = spawn(executable, args, {
 			stdio: [
 				"ignore",
 				"pipe",
@@ -1431,6 +1510,11 @@ const Config = z.object({
 /** @param ctx 官方注入的服务。 @param config 已校验的运行配置。 */
 function apply(ctx, config) {
 	const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+	const readLocale = async () => {
+		const settings = ctx.get("settings");
+		if (settings === void 0 || typeof settings.describe !== "function") return null;
+		return dshLocalePreference(await settings.describe());
+	};
 	const controller = new DesktopToolsController({
 		ctx,
 		profileDir: ctx.profileContext.dir,
@@ -1440,7 +1524,18 @@ function apply(ctx, config) {
 			controller.disableFeature(feature).catch((error) => {
 				ctx.logger.error("桌面工具停用失败: %s", error instanceof Error ? error.message : String(error));
 			});
-		})
+		}, readLocale)
+	});
+	let lastLocale;
+	ctx.on("settings/document-updated", (ns) => {
+		if (ns !== "locale") return;
+		readLocale().then((preference) => {
+			if (preference === lastLocale) return;
+			lastLocale = preference;
+			return controller.localeChanged(preference);
+		}).catch((error) => {
+			ctx.logger.warn("桌面工具语言同步失败: %s", error instanceof Error ? error.message : String(error));
+		});
 	});
 	new DesktopToolsService(ctx, controller);
 	ctx.effect(() => {

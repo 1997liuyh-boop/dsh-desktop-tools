@@ -1,20 +1,24 @@
 const api = window.dshDesktop
 
 void (async () => {
-  const { messages, locale } = await api.locale()
-  document.documentElement.lang = locale?.startsWith('zh') ? 'zh-CN' : 'en'
+  let { messages, id: locale } = await api.locale()
   const bar = document.getElementById('bar')
-  const labels = {
-    search: messages.selectionToolbarSearch,
-    translate: messages.selectionToolbarTranslate,
-    note: messages.selectionToolbarNote,
-    wechat: messages.selectionToolbarWechat,
-    explain: messages.selectionToolbarExplain,
-    'send-to-agent': messages.selectionToolbarSendToAgent,
+  const ids = ['search', 'translate', 'note', 'wechat', 'explain', 'send-to-agent']
+  const keys = {
+    search: 'selectionToolbarSearch', translate: 'selectionToolbarTranslate', note: 'selectionToolbarNote',
+    wechat: 'selectionToolbarWechat', explain: 'selectionToolbarExplain', 'send-to-agent': 'selectionToolbarSendToAgent',
   }
   // 内置按钮保留在页面里，只按配置调整顺序和显示；自定义动作按需创建。
-  const builtins = new Map(Object.keys(labels).map(id => [id, document.getElementById(id)]))
-  for (const [id, label] of Object.entries(labels)) builtins.get(id).textContent = label
+  const builtins = new Map(ids.map(id => [id, document.getElementById(id)]))
+  /** 按当前语言设置内置按钮文案；DSH 切换语言后重新调用。 */
+  const applyLocale = () => {
+    document.documentElement.lang = locale ?? 'en'
+    for (const id of ids) builtins.get(id).textContent = messages[keys[id]]
+  }
+  applyLocale()
+  api.onLocaleChanged?.(() => {
+    void api.locale().then(next => { messages = next.messages; locale = next.id; applyLocale() })
+  })
   const report = error => {
     bar.title = messages.selectionFailed
     console.warn('Selection toolbar action failed', error)

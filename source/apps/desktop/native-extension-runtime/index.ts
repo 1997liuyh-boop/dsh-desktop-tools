@@ -8,9 +8,10 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { DesktopToolsController, DesktopToolsService } from './desktop-tools-service.ts'
+import { DesktopToolsController, DesktopToolsService, type DesktopRuntimeCommand } from './desktop-tools-service.ts'
 import { createNativeHostBridge } from './host.ts'
 import { resolveHelperExecutable } from './helper-executable.ts'
+import { dshLocalePreference } from '../src/dsh-locale.ts'
 import type { DesktopFeatureId } from '../src/desktop-tools-types.ts'
 
 interface Descriptor {
@@ -42,7 +43,9 @@ export class NativeRuntime {
 
   /** @param ctx 官方服务与当前配置目录。 @param config 进程等待时限与可执行文件覆盖。 */
   constructor(private readonly ctx: Context, private readonly config: RuntimeConfig, private readonly onFailure?: (error: Error) => void,
-    private readonly onDisableFeature?: (feature: DesktopFeatureId) => void) {
+    private readonly onDisableFeature?: (feature: DesktopFeatureId) => void,
+    /** 启动辅助进程时传入的 DSH 语言偏好；null 表示跟随系统。 */
+    private readonly localePreference?: () => Promise<string | null>) {
     this.bridge = createNativeHostBridge(ctx, message => this.send(message))
   }
 
@@ -58,9 +61,11 @@ export class NativeRuntime {
   helperElectronVersion(): string | undefined { return this.helperElectron }
 
   /** @param command 辅助进程命令。 @param input 已校验参数。 */
-  async command(command: 'capture-open' | 'permissions-status' | 'permission-open' | 'avatar-refresh' | 'shortcuts-status', input: {
-    readonly mode?: 'image' | 'video' | 'long' | 'pins'
+  async command(command: DesktopRuntimeCommand, input: {
+    readonly mode?: 'image' | 'video' | 'long' | 'pins' | 'history'
     readonly right?: 'screen' | 'accessibility'
+    /** locale-changed：DSH 的语言偏好，null 表示跟随系统。 */
+    readonly preference?: string | null
   }): Promise<unknown> {
     await this.start()
     const requestId = randomUUID()
@@ -111,7 +116,11 @@ export class NativeRuntime {
     if (this.closed) throw new Error('Native desktop runtime was disabled before launch')
     const environment = Object.fromEntries(Object.entries(process.env).filter(([key, value]) => value !== undefined
       && !/KEY|SECRET|TOKEN|PASSWORD|ELECTRON_RUN_AS_NODE|NODE_OPTIONS|NODE_PATH/iu.test(key)))
-    const child = spawn(executable, [join(dirname(fileURLToPath(import.meta.url)), 'helper.js'), `--dsh-profile=${resolve(this.ctx.profileContext.dir)}`], {
+    const preference = await this.localePreference?.().catch(() => null) ?? null
+    if (this.closed) throw new Error('Native desktop runtime was disabled before launch')
+    const args = [join(dirname(fileURLToPath(import.meta.url)), 'helper.js'), `--dsh-profile=${resolve(this.ctx.profileContext.dir)}`]
+    if (preference !== null) args.push(`--dsh-locale=${preference}`)
+    const child = spawn(executable, args, {
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'], windowsHide: true, env: environment,
     })
     this.child = child
@@ -263,6 +272,12 @@ export const Config = z.object({
 /** @param ctx 官方注入的服务。 @param config 已校验的运行配置。 */
 export function apply(ctx: Context, config: RuntimeConfig): void {
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+  // DSH 的语言偏好保存在 settings 服务的 locale 项；该服务可选，缺失时辅助进程跟随系统语言。
+  const readLocale = async (): Promise<string | null> => {
+    const settings = (ctx as unknown as { get(name: 'settings'): { describe(): unknown } | undefined }).get('settings')
+    if (settings === undefined || typeof settings.describe !== 'function') return null
+    return dshLocalePreference(await settings.describe())
+  }
   const controller = new DesktopToolsController({
     ctx,
     profileDir: ctx.profileContext.dir,
@@ -272,7 +287,17 @@ export function apply(ctx: Context, config: RuntimeConfig): void {
       void controller.disableFeature(feature).catch((error: unknown) => {
         ctx.logger.error('桌面工具停用失败: %s', error instanceof Error ? error.message : String(error))
       })
-    }),
+    }, readLocale),
+  })
+  // 用户在 DSH 中切换语言时通知辅助进程刷新文案。
+  let lastLocale: string | null | undefined
+  ;(ctx as unknown as { on(event: string, listener: (ns: unknown) => void): () => void }).on('settings/document-updated', (ns) => {
+    if (ns !== 'locale') return
+    void readLocale().then((preference) => {
+      if (preference === lastLocale) return
+      lastLocale = preference
+      return controller.localeChanged(preference)
+    }).catch((error: unknown) => { ctx.logger.warn('桌面工具语言同步失败: %s', error instanceof Error ? error.message : String(error)) })
   })
   new DesktopToolsService(ctx, controller)
   ctx.effect(() => {

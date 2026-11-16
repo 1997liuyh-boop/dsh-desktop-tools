@@ -1,8 +1,8 @@
 import { n as SCHEME, t as DESKTOP_IPC } from "./ipc-whBK8Kjb.js";
 import { t as loadKoffiPlatform } from "./koffi-platform-C2YCpT9s.js";
 import { c as isSelectionLanguage, d as clipboardTypes, l as selectionSearchUrl, n as selectionRecord, o as composeSelectionCustomPrompt, s as composeSelectionTranslatePrompt, t as SelectionSessionTask, u as selectionToolbarItems } from "./selection-session-M4SY_0MA.js";
-import { m as OVERLAY_ALWAYS_ON_TOP_LEVEL, n as parseOrbAgentModelSelection, t as isOrbAgentModelSelection, u as presentOverlayWindow } from "./orb-agent-models-D7Ei0jlZ.js";
-import { i as writeDesktopToolsConfig, r as readDesktopToolsConfig } from "./desktop-tools-config-A_wdY9X1.js";
+import { m as OVERLAY_ALWAYS_ON_TOP_LEVEL, n as parseOrbAgentModelSelection, t as isOrbAgentModelSelection, u as presentOverlayWindow } from "./orb-agent-models-CfuNtLlv.js";
+import { i as writeDesktopToolsConfig, r as readDesktopToolsConfig } from "./desktop-tools-config-C0hCUcBZ.js";
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -886,6 +886,18 @@ var SelectionToolbarController = class {
 			this.restoreTimer = void 0;
 		}
 		hideSelectionToolbar(this.toolbar);
+	}
+	/**
+	* 设置页保存后就地重读配置：更新工具栏按钮与语言、兼容取词开关，并按启用状态启动或暂停取词。
+	* 不重建工具栏窗口，已打开的结果窗不受影响。
+	*/
+	reloadConfig() {
+		const previous = this.config;
+		this.config = readSelectionToolbarConfig(this.profileDir);
+		if (this.config.compatibilityCopy !== previous.compatibilityCopy) this.monitor?.setCompatibilityCopy?.(this.config.compatibilityCopy ?? true);
+		if (this.config.enabled) this.start();
+		else this.stop();
+		this.publishState();
 	}
 	setEnabled(enabled) {
 		this.writeConfig({
@@ -2233,6 +2245,10 @@ async function activate(context) {
 	});
 	context.handle(DESKTOP_IPC.selectionInteract, (event) => {
 		requireToolbar(event);
+	});
+	context.onConfig(() => {
+		selectionController.reloadConfig();
+		environment.changed();
 	});
 	context.handle(DESKTOP_IPC.selectionItems, (event) => requireToolbar(event).toolbarItems());
 	context.handle(DESKTOP_IPC.selectionSetContentSize, (event, size) => {

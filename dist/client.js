@@ -791,6 +791,44 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
           shortcutRow("screenshot.shortcut"),
           shortcutRow("screenshot.longShortcut"),
           shortcutRow("screenshot.pinsShortcut"),
+          /* @__PURE__ */ jsxRuntime.jsxs(Row, { title: t("historyEnabled"), description: t("historyDescription"), children: [
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "button",
+              {
+                type: "button",
+                className: BUTTON_CLASS,
+                disabled: snapshot?.features.capture.phase !== "active",
+                onClick: () => {
+                  void services.openCapture("history");
+                },
+                children: t("historyOpen")
+              }
+            ),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "button",
+              {
+                type: "button",
+                className: BUTTON_CLASS,
+                disabled: busy,
+                onClick: () => {
+                  if (!window.confirm(t("historyClearConfirm"))) return;
+                  void services.clearHistory().then((result) => {
+                    setMessage(result.ok ? t("historyCleared") : t("saveError"));
+                  });
+                },
+                children: t("historyClear")
+              }
+            ),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              dshClientUiPrimitives.Switch,
+              {
+                checked: draft.history.enabled,
+                disabled: busy,
+                label: t("historyEnabled"),
+                onChange: (next) => setDraft({ ...draft, history: { enabled: next } })
+              }
+            )
+          ] }),
           /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t("visionTitle"), description: /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
             t("visionDescription"),
             /* @__PURE__ */ jsxRuntime.jsx("br", {}),
@@ -835,7 +873,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
           })
         ] })
       ] }),
-      message && /* @__PURE__ */ jsxRuntime.jsx("p", { role: "status", className: message === t("saved") ? "m-0 text-[13px] text-[var(--dsw-alias-state-success-primary)]" : "m-0 text-[13px] text-[var(--dsw-alias-state-error-primary)]", children: message }),
+      message && /* @__PURE__ */ jsxRuntime.jsx("p", { role: "status", className: message === t("saved") || message === t("historyCleared") ? "m-0 text-[13px] text-[var(--dsw-alias-state-success-primary)]" : "m-0 text-[13px] text-[var(--dsw-alias-state-error-primary)]", children: message }),
       /* @__PURE__ */ jsxRuntime.jsxs("footer", { className: "flex flex-wrap justify-end gap-2 border-t-[0.5px] border-[var(--dsw-alias-border-l2)] pt-4", children: [
         /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", disabled: busy, className: BUTTON_CLASS, onClick: () => {
           void load();
@@ -972,6 +1010,12 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     actionConfirm: "Done",
     actionLimit: "Up to 10 custom actions.",
     actionInvalid: "Enter a name (up to 20 characters) and a prompt (up to 4000 characters).",
+    historyEnabled: "Keep capture history",
+    historyDescription: "Saves screenshots, recognized text, answers, and saved recording paths on this computer (up to 100 entries).",
+    historyOpen: "Open history",
+    historyClear: "Clear history",
+    historyClearConfirm: "Delete all capture history? Files you saved yourself are kept.",
+    historyCleared: "Capture history cleared",
     pinsShortcut: "Show or hide all pins",
     pinsShortcutDescription: "Global shortcut that shows or hides every pinned image. Save to apply.",
     openPins: "Manage pins",
@@ -1163,6 +1207,12 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     actionConfirm: "完成",
     actionLimit: "最多 10 个自定义动作。",
     actionInvalid: "请填写名称（最多 20 字）和提示词（最多 4000 字）。",
+    historyEnabled: "保存截图历史",
+    historyDescription: "把截图、识别结果、回答和保存的录屏路径保存在本机（最多 100 条）。",
+    historyOpen: "打开历史",
+    historyClear: "清空历史",
+    historyClearConfirm: "确定清空全部截图历史吗？你自己保存的文件不会被删除。",
+    historyCleared: "截图历史已清空",
     pinsShortcut: "显示 / 隐藏全部钉图",
     pinsShortcutDescription: "系统级快捷键，一键显示或隐藏所有钉在桌面的图片。保存后生效。",
     openPins: "钉图管理",
@@ -1390,6 +1440,9 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .size-9 {
     width: calc(var(--spacing) * 9);
     height: calc(var(--spacing) * 9);
+  }
+  .h-0 {
+    height: 0px;
   }
   .h-9 {
     height: calc(var(--spacing) * 9);
@@ -2230,7 +2283,8 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
       "desktopTools/restart": method("restart", [], json),
       "desktopTools/installVision": method("installVision", [], json),
       "desktopTools/diagnose": method("diagnose", [], json),
-      "desktopTools/openCapture": method("openCapture", [parameter("mode", zod.z.enum(["image", "video", "long", "pins"]))], zod.z.object({ opened: zod.z.literal(true) })),
+      "desktopTools/clearHistory": method("clearHistory", [], json),
+      "desktopTools/openCapture": method("openCapture", [parameter("mode", zod.z.enum(["image", "video", "long", "pins", "history"]))], zod.z.object({ opened: zod.z.literal(true) })),
       "desktopTools/avatar": method("avatar", [], zod.z.object({ dataUrl: zod.z.string().optional(), defaultDataUrl: zod.z.string().optional() })),
       "desktopTools/setAvatar": method("setAvatar", [parameter("dataUrl", zod.z.string()), parameter("fileName", zod.z.string())], json),
       "desktopTools/restoreAvatar": method("restoreAvatar", [], json),
@@ -2270,6 +2324,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
         installVision: () => tools().installVision(),
         openCapture: (mode) => tools().openCapture(mode),
         diagnose: () => tools().diagnose(),
+        clearHistory: () => tools().clearHistory(),
         async modelCatalog() {
           if (sessionRemote === void 0) return void 0;
           const result = await sessionRemote.modelCatalog();

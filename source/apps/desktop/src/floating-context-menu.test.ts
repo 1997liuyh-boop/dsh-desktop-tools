@@ -55,6 +55,14 @@ test('提供钉图管理时显示在快捷工具组末尾，并按截图录屏�
   assert.equal(opened, 1)
 })
 
+test('提供截图历史时显示在钉图管理之后', () => {
+  let opened = 0
+  const menu = floatingContextMenuTemplate(plain, zh, noop, actions({ pins: noop, history: () => { opened += 1 } }))
+  assert.deepEqual(menu.slice(2, 5).map(item => item.label ?? item.type), ['钉图管理…', '截图历史…', 'separator'])
+  menu[3]?.click?.(null!, null!, null!)
+  assert.equal(opened, 1)
+})
+
 test('模型不可用时仍可选择跟随主窗口，输入框保留剪切复制粘贴', () => {
   let selected: unknown = 'unchanged'
   const model = { provider: 'test', model: 'test' }

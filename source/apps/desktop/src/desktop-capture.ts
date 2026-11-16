@@ -13,6 +13,7 @@ import type { DesktopRecordingFormat, DesktopToolsConfig, DesktopVisionStatus } 
 import { captureScroller } from './capture-native-input.ts'
 import { writeClipboardPng } from './clipboard-compat.ts'
 import { PinStore, type PinBounds, type StoredPin } from './capture-pin-store.ts'
+import { HistoryStore, newHistoryId, type HistoryEntry, type HistoryKind } from './capture-history-store.ts'
 import { composeCaptureAskPrompt, composeSelectionTranslatePrompt, DESKTOP_SELECTION_PREAMBLE } from './selection-prompt.ts'
 import { SelectionSessionTask, submitSelectionPrompt, type SelectionSessionTransport, type SelectionTaskState } from './selection-session.ts'
 
@@ -156,6 +157,10 @@ export class DesktopCapture {
   private readonly pins = new Map<number, PinEntry>()
   /** 钉图管理窗；同一时间只有一个。 */
   private manager: BrowserWindow | undefined
+  /** 截图历史窗；同一时间只有一个。 */
+  private historyWindow: BrowserWindow | undefined
+  /** 历史缩略图缓存（data URL），按记录 id。 */
+  private readonly historyThumbs = new Map<string, string>()
   private readonly results = new Map<number, ResultEntry>()
   private readonly cleanups = new Set<Promise<void>>()
   private readonly timers = new Set<ReturnType<typeof setTimeout>>()
@@ -164,6 +169,34 @@ export class DesktopCapture {
   private get messages(): DesktopMessages { return this.host.messages() }
   private get directory(): string { return join(this.host.directory, 'captures') }
   private get pinStore(): PinStore { return new PinStore(join(this.host.directory, 'desktop-tools', 'pins')) }
+  private get historyStore(): HistoryStore { return new HistoryStore(join(this.host.directory, 'desktop-tools', 'history')) }
+
+  /**
+   * 记录一条截图 / 录屏历史；设置中关闭历史或写盘失败时静默跳过，不影响截图本身。
+   * @param entry 类型、文字、问题、用户保存的文件。
+   * @param png 图片；超过 16 MB 时缩到宽 2000 再保存。
+   */
+  private record(entry: { readonly kind: HistoryKind; readonly text?: string; readonly question?: string; readonly file?: string }, png?: Buffer): void {
+    if (!this.host.config().history.enabled) return
+    try {
+      let image = png
+      let size: { width: number; height: number } | undefined
+      if (image !== undefined) {
+        let native = nativeImage.createFromBuffer(image)
+        if (image.byteLength > 16_000_000) { native = native.resize({ width: 2000 }); image = native.toPNG() }
+        size = native.getSize()
+      }
+      const item: HistoryEntry = {
+        id: newHistoryId(), createdAt: Date.now(), kind: entry.kind, image: image !== undefined,
+        ...(size === undefined ? {} : { width: size.width, height: size.height }),
+        ...(entry.text === undefined || entry.text.trim() === '' ? {} : { text: entry.text }),
+        ...(entry.question === undefined ? {} : { question: entry.question }),
+        ...(entry.file === undefined ? {} : { file: entry.file }),
+      }
+      this.historyStore.add(item, image)
+      this.historyChanged()
+    } catch (error: unknown) { console.warn('截图历史保存失败', error) }
+  }
 
   private window(options: Electron.BrowserWindowConstructorOptions): BrowserWindow {
     const window = new BrowserWindow({
@@ -236,8 +269,10 @@ export class DesktopCapture {
       const result = this.results.get(event.sender.id)
       const entry = this.entries.get(event.sender.id)
       const fromManager = this.manager !== undefined && !this.manager.isDestroyed() && this.manager.webContents.id === event.sender.id
+      const fromHistory = this.historyWindow !== undefined && !this.historyWindow.isDestroyed() && this.historyWindow.webContents.id === event.sender.id
       try {
         if (fromManager) return { ok: true, value: await this.invokeManager(operation, value) }
+        if (fromHistory) return { ok: true, value: await this.invokeHistory(operation, value) }
         if (pin) return { ok: true, value: await this.invokePin(pin, operation, value) }
         if (result) return { ok: true, value: await this.invokeResult(result, operation, value) }
         if (!entry) throw new Error('Unowned capture renderer')
@@ -254,6 +289,7 @@ export class DesktopCapture {
       for (const timer of this.timers) clearTimeout(timer)
       for (const item of [...this.results.values()]) { void item.task?.stop(); item.window.destroy() }
       if (this.manager !== undefined && !this.manager.isDestroyed()) this.manager.destroy()
+      if (this.historyWindow !== undefined && !this.historyWindow.isDestroyed()) this.historyWindow.destroy()
       for (const item of [...this.pins.values()]) { clearTimeout(item.saveTimer); item.window.destroy() }
       for (const entry of [...this.entries.values()]) entry.window.close()
       await Promise.all(this.cleanups)
@@ -264,7 +300,8 @@ export class DesktopCapture {
   owns(event: IpcMainInvokeEvent): boolean {
     const id = event.sender.id
     const manager = this.manager !== undefined && !this.manager.isDestroyed() && this.manager.webContents.id === id
-    return (this.entries.has(id) || this.pins.has(id) || this.results.has(id) || manager) && event.senderFrame === event.sender.mainFrame
+    const history = this.historyWindow !== undefined && !this.historyWindow.isDestroyed() && this.historyWindow.webContents.id === id
+    return (this.entries.has(id) || this.pins.has(id) || this.results.has(id) || manager || history) && event.senderFrame === event.sender.mainFrame
   }
 
   private armed(entry: CaptureEntry): boolean {
@@ -280,6 +317,7 @@ export class DesktopCapture {
   private async save(entry: CaptureEntry): Promise<object> {
     if (!entry.pending || !entry.path) throw new Error('No capture to save')
     const copied = entry.copied
+    const savingVideo = entry.pending === 'video'
     let temporary: string | undefined
     try {
       const extension = entry.format
@@ -301,6 +339,7 @@ export class DesktopCapture {
       const source = entry.path
       entry.saved = path; entry.path = undefined; entry.pending = undefined
       entry.settle(path)
+      if (savingVideo) this.record({ kind: 'recording', file: path })
       if (resolve(source) !== resolve(path)) {
         await rm(source, { force: true }).catch((error: unknown) => { console.warn('desktop capture temporary cleanup:', error) })
       }
@@ -408,8 +447,10 @@ export class DesktopCapture {
       case 'image-data': {
         if (entry.path || entry.file) throw new Error('Invalid screenshot data')
         const png = pngFrom(value.data)
+        const imageKind: HistoryKind = entry.long === undefined ? 'image' : 'long'
         if (value.copy === true) {
           await writeClipboardPng(png)
+          this.record({ kind: imageKind }, png)
           return { copied: true }
         }
         await mkdir(directory, { recursive: true })
@@ -424,7 +465,10 @@ export class DesktopCapture {
         entry.path = path
         entry.pending = 'image'
         entry.format = 'png'
-        return this.save(entry)
+        const saved = await this.save(entry)
+        const savedPath = (saved as { path?: unknown }).path
+        if (typeof savedPath === 'string') this.record({ kind: imageKind, file: savedPath }, png)
+        return saved
       }
       case 'pin': {
         const png = pngFrom(value.data)
@@ -436,11 +480,13 @@ export class DesktopCapture {
           const ratio = Math.min(1 / scale, area.width * 0.8 / size.width, area.height * 0.8 / size.height)
           const width = Math.max(24, Math.round(size.width * ratio)), height = Math.max(24, Math.round(size.height * ratio))
           this.openPin(png, { x: area.x + Math.round((area.width - width) / 2), y: area.y + Math.round((area.height - height) / 2), width, height })
+          this.record({ kind: 'long' }, png)
           return undefined
         }
         const box = rectangle(value.bounds)
         if (!box || !entry.desktop) throw new Error('Invalid pin area')
         this.openPin(png, { ...box, x: box.x + entry.desktop.x, y: box.y + entry.desktop.y })
+        this.record({ kind: 'image' }, png)
         return undefined
       }
       case 'analyze': {
@@ -468,6 +514,7 @@ export class DesktopCapture {
             model: config.selection.model,
           })
           this.host.showMain()
+          this.record({ kind: entry.long === undefined ? 'image' : 'long', text: note }, png)
           return { sessionId }
         } catch (error: unknown) {
           const message = error instanceof Error ? error.message : String(error)
@@ -757,6 +804,104 @@ export class DesktopCapture {
     void window.loadURL('dsh-app://shell/capture-pins.html')
   }
 
+  /** 打开截图历史窗；已打开时置于最前。 */
+  openHistory(): void {
+    if (this.historyWindow !== undefined && !this.historyWindow.isDestroyed()) {
+      this.historyWindow.show(); this.historyWindow.moveTop(); this.historyWindow.focus(); return
+    }
+    const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+    const width = Math.min(760, area.width - 48), height = Math.min(600, area.height - 48)
+    const window = this.window({
+      x: area.x + Math.round((area.width - width) / 2), y: area.y + Math.round((area.height - height) / 2), width, height,
+      resizable: true, movable: true, alwaysOnTop: false, minWidth: 380, minHeight: 300, frame: false, skipTaskbar: false,
+    })
+    this.historyWindow = window
+    window.once('closed', () => { if (this.historyWindow === window) this.historyWindow = undefined })
+    window.once('ready-to-show', () => { window.show(); window.moveTop(); window.focus() })
+    void window.loadURL('dsh-app://shell/capture-history.html')
+  }
+
+  /** 历史有变化（新增、删除、清空，或 Host 清空后通知）：刷新已打开的历史窗。 */
+  historyChanged(): void {
+    if (this.historyWindow === undefined || this.historyWindow.isDestroyed()) return
+    this.historyWindow.webContents.send(DESKTOP_IPC.captureEvent, { type: 'history-changed', entries: this.historySummaries() })
+  }
+
+  /** @returns 历史记录与缩略图，供历史窗展示。 */
+  private historySummaries(): object[] {
+    const store = this.historyStore
+    const entries = store.list()
+    const live = new Set(entries.map(entry => entry.id))
+    for (const id of this.historyThumbs.keys()) if (!live.has(id)) this.historyThumbs.delete(id)
+    return entries.map(entry => {
+      let thumb = ''
+      if (entry.image) {
+        thumb = this.historyThumbs.get(entry.id) ?? ''
+        if (thumb === '') {
+          try {
+            const image = nativeImage.createFromBuffer(store.readImage(entry.id))
+            thumb = image.resize({ width: Math.min(240, image.getSize().width) }).toDataURL()
+            this.historyThumbs.set(entry.id, thumb)
+          } catch { thumb = '' }
+        }
+      }
+      return { ...entry, thumb, enabled: this.host.config().history.enabled }
+    })
+  }
+
+  private historyEntry(id: unknown): HistoryEntry {
+    const entry = typeof id === 'string' ? this.historyStore.list().find(item => item.id === id) : undefined
+    if (entry === undefined) throw new Error('历史记录不存在')
+    return entry
+  }
+
+  /** 截图历史窗的操作。 */
+  private async invokeHistory(operation: unknown, value: Record<string, unknown>): Promise<unknown> {
+    switch (operation) {
+      case 'history-init': return { entries: this.historySummaries(), enabled: this.host.config().history.enabled, directory: join(this.host.directory, 'desktop-tools', 'history') }
+      case 'history-copy-image': {
+        const entry = this.historyEntry(value.id)
+        if (!entry.image) throw new Error('这条记录没有图片')
+        await writeClipboardPng(this.historyStore.readImage(entry.id))
+        return undefined
+      }
+      case 'history-copy-text': {
+        const entry = this.historyEntry(value.id)
+        clipboard.writeText(entry.text ?? '')
+        return undefined
+      }
+      case 'history-ask': {
+        const entry = this.historyEntry(value.id)
+        if (!entry.image) throw new Error('这条记录没有图片')
+        this.openResult('ask', [this.historyStore.readImage(entry.id)], [], entry.kind === 'long')
+        return undefined
+      }
+      case 'history-pin': {
+        const entry = this.historyEntry(value.id)
+        if (!entry.image) throw new Error('这条记录没有图片')
+        const png = this.historyStore.readImage(entry.id)
+        // 与长截图钉图相同：在光标所在屏幕居中，按工作区 80% 等比缩小。
+        const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+        const size = nativeImage.createFromBuffer(png).getSize()
+        const scale = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).scaleFactor || 1
+        const ratio = Math.min(1 / scale, area.width * 0.8 / size.width, area.height * 0.8 / size.height)
+        const width = Math.max(24, Math.round(size.width * ratio)), height = Math.max(24, Math.round(size.height * ratio))
+        this.openPin(png, { x: area.x + Math.round((area.width - width) / 2), y: area.y + Math.round((area.height - height) / 2), width, height })
+        return undefined
+      }
+      case 'history-reveal': {
+        const entry = this.historyEntry(value.id)
+        if (entry.file === undefined) throw new Error('这条记录没有保存到磁盘的文件')
+        shell.showItemInFolder(entry.file)
+        return undefined
+      }
+      case 'history-delete': this.historyStore.remove(this.historyEntry(value.id).id); this.historyChanged(); return undefined
+      case 'history-clear': this.historyStore.clear(); this.historyThumbs.clear(); this.historyChanged(); return undefined
+      case 'history-window-close': this.historyWindow?.close(); return undefined
+      default: throw new Error('Unknown history operation')
+    }
+  }
+
   /** 钉图变化：刷新管理窗与托盘菜单。 */
   private pinsChanged(): void {
     if (this.manager !== undefined && !this.manager.isDestroyed()) {
@@ -870,10 +1015,26 @@ export class DesktopCapture {
       this.results.delete(id)
       entry.revision += 1
       void entry.task?.stop().catch((error: unknown) => { console.warn('capture result task stop:', error) })
+      this.recordResult(entry)
     })
     void window.loadURL('dsh-app://shell/capture-result.html')
     window.once('ready-to-show', () => { window.show(); window.moveTop() })
     void this.analyze(entry)
+  }
+
+  /** 结果窗关闭时把最终内容记入历史；没有任何结果（识别失败、未提问）时不记录。 */
+  private recordResult(entry: ResultEntry): void {
+    const answer = entry.state?.phase === 'done' ? entry.state.text : ''
+    if (entry.kind === 'ask') {
+      const turns = [...entry.history, ...(entry.question !== undefined && answer.trim() !== '' ? [{ question: entry.question, answer }] : [])]
+      if (turns.length === 0) return
+      const text = turns.map(turn => `${turn.question}\n\n${turn.answer}`).join('\n\n---\n\n')
+      this.record({ kind: 'ask', question: turns[0]!.question, text }, entry.images[0])
+      return
+    }
+    const text = entry.kind === 'ocr' ? entry.text : answer
+    if (text.trim() === '') return
+    this.record({ kind: entry.kind, text }, entry.images[0])
   }
 
   private publish(entry: ResultEntry): void {

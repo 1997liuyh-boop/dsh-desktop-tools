@@ -23,9 +23,11 @@ export interface DesktopToolsSettingsServices {
   /** 安装或启用前置插件 dsh-vision-router。 */
   installVision(): Promise<RemoteResult<{ readonly snapshot: DesktopToolsSnapshot; readonly restartRequired: boolean }>>
   /** 立即打开截图、录屏或长截图。 */
-  openCapture(mode: 'image' | 'video' | 'long' | 'pins'): Promise<RemoteResult<{ readonly opened: true }>>
+  openCapture(mode: 'image' | 'video' | 'long' | 'pins' | 'history'): Promise<RemoteResult<{ readonly opened: true }>>
   /** 逐项检查运行环境。 */
   diagnose(): Promise<RemoteResult<DesktopDiagnostics>>
+  /** 清空截图历史。 */
+  clearHistory(): Promise<RemoteResult<{ readonly cleared: true }>>
   /** DSH「模型」设置中当前可用的服务商与模型；宿主不可用时返回 undefined。 */
   modelCatalog(): Promise<ModelCatalog | undefined>
 }
@@ -479,6 +481,17 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
         {shortcutRow('screenshot.shortcut')}
         {shortcutRow('screenshot.longShortcut')}
         {shortcutRow('screenshot.pinsShortcut')}
+        <Row title={t('historyEnabled')} description={t('historyDescription')}>
+          <button type="button" className={BUTTON_CLASS} disabled={snapshot?.features.capture.phase !== 'active'}
+            onClick={() => { void services.openCapture('history') }}>{t('historyOpen')}</button>
+          <button type="button" className={BUTTON_CLASS} disabled={busy}
+            onClick={() => {
+              if (!window.confirm(t('historyClearConfirm'))) return
+              void services.clearHistory().then(result => { setMessage(result.ok ? t('historyCleared') : t('saveError')) })
+            }}>{t('historyClear')}</button>
+          <Switch checked={draft.history.enabled} disabled={busy} label={t('historyEnabled')}
+            onChange={next => setDraft({ ...draft, history: { enabled: next } })} />
+        </Row>
         <Row title={t('visionTitle')} description={<>{t('visionDescription')}<br />{t(snapshot?.vision.state === 'ready' ? 'visionStateReady' : snapshot?.vision.state === 'missing' ? 'visionStateMissing' : snapshot?.vision.state === 'disabled' ? 'visionStateDisabled' : snapshot?.vision.state === 'tool-off' ? 'visionStateToolOff' : 'visionStateUnknown')}</>}>
           {snapshot?.vision.state !== 'ready' && snapshot?.vision.state !== 'tool-off'
             && <button type="button" disabled={installing} className={PRIMARY_BUTTON_CLASS} onClick={() => { void installVision() }}>{installing ? t('visionInstalling') : snapshot?.vision.state === 'disabled' ? t('visionEnable') : t('visionInstall')}</button>}
@@ -507,7 +520,7 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
       </>}
     </div>
 
-    {message && <p role="status" className={message === t('saved') ? 'm-0 text-[13px] text-[var(--dsw-alias-state-success-primary)]' : 'm-0 text-[13px] text-[var(--dsw-alias-state-error-primary)]'}>{message}</p>}
+    {message && <p role="status" className={message === t('saved') || message === t('historyCleared') ? 'm-0 text-[13px] text-[var(--dsw-alias-state-success-primary)]' : 'm-0 text-[13px] text-[var(--dsw-alias-state-error-primary)]'}>{message}</p>}
     <footer className="flex flex-wrap justify-end gap-2 border-t-[0.5px] border-[var(--dsw-alias-border-l2)] pt-4">
       <button type="button" disabled={busy} className={BUTTON_CLASS} onClick={() => { void load() }}>{t('check')}</button>
       {pending && <button type="button" disabled={busy} className={BUTTON_CLASS} onClick={() => { void retry() }}>{t('retry')}</button>}

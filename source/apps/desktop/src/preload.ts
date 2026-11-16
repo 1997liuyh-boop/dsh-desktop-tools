@@ -117,6 +117,12 @@ contextBridge.exposeInMainWorld('dshDesktop', {
     },
   },
   locale: () => ipcRenderer.invoke(DESKTOP_IPC.floatingLocale),
+  /** DSH 切换界面语言后通知已打开的窗口；返回取消订阅函数。 */
+  onLocaleChanged: (listener: () => void) => {
+    const handle = (): void => { listener() }
+    ipcRenderer.on(DESKTOP_IPC.localeChanged, handle)
+    return () => { ipcRenderer.off(DESKTOP_IPC.localeChanged, handle) }
+  },
   backend,
   floating: standalone ? standaloneFloating : floating,
   selection,

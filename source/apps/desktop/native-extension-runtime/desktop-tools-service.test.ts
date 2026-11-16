@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -15,6 +15,8 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 
 class FakeRuntime {
   readonly activated: string[] = []
   readonly released: string[] = []
+  /** 收到的命令与参数，按顺序。 */
+  readonly received: [string, unknown][] = []
   disposed = 0
   constructor(readonly onFailure: (error: Error) => void, private readonly failing: ReadonlySet<string>,
     private readonly commands: Record<string, unknown>) {}
@@ -25,9 +27,14 @@ class FakeRuntime {
     return async () => { this.released.push(descriptor.id) }
   }
 
-  async command(command: string): Promise<unknown> {
+  async command(command: string, input: unknown = {}): Promise<unknown> {
+    this.received.push([command, input])
+    // 通知类命令没有返回值，默认成功。
+    if (['config-changed', 'locale-changed', 'history-changed'].includes(command) && !(command in this.commands)) return undefined
     if (!(command in this.commands)) throw new Error(`未模拟的命令 ${command}`)
-    return this.commands[command]
+    const value = this.commands[command]
+    if (value instanceof Error) throw value
+    return value
   }
 
   helperElectronVersion(): string { return '39.2.0' }
@@ -84,18 +91,98 @@ test('单个功能启动失败不影响其他功能，保存结果分开报告',
   assert.equal(result.applied, false)
 })
 
-test('更新配置会写盘、停掉旧辅助进程并按新配置启动', async (t) => {
+test('启用新功能时只启动这一个功能，其余功能就地重读配置，辅助进程不重建', async (t) => {
   const { controller, runtimes, profileDir, cleanup } = setup()
   t.after(cleanup)
   await controller.start()
   const result = await controller.update(withCapture(defaultDesktopToolsConfig()))
   assert.equal(result.applied, true)
   assert.equal(result.snapshot.features.capture.phase, 'active')
-  assert.equal(runtimes.length, 2)
-  assert.equal(runtimes[0]?.disposed, 1)
-  assert.deepEqual(runtimes[0]?.released, ['dsh-floating-ball', 'dsh-selection-toolbar'])
+  assert.equal(runtimes.length, 1)
+  assert.equal(runtimes[0]?.disposed, 0)
+  assert.deepEqual(runtimes[0]?.released, [])
+  assert.deepEqual(runtimes[0]?.activated, ['dsh-selection-toolbar', 'dsh-floating-ball', 'dsh-capture'])
+  assert.deepEqual(runtimes[0]?.received.map(([name]) => name).filter(name => name === 'config-changed'), ['config-changed'])
   const saved = JSON.parse(readFileSync(join(profileDir, DESKTOP_TOOLS_CONFIG_FILE), 'utf8')) as DesktopToolsConfig
   assert.equal(saved.screenshot.enabled, true)
+})
+
+test('只改参数时不启停任何功能，只通知辅助进程重读配置', async (t) => {
+  const { controller, runtimes, cleanup } = setup()
+  t.after(cleanup)
+  await controller.start()
+  const config = defaultDesktopToolsConfig()
+  const result = await controller.update({ ...config, selection: { ...config.selection, targetLanguage: '日本語' } })
+  assert.equal(result.applied, true)
+  assert.equal(runtimes.length, 1)
+  assert.deepEqual(runtimes[0]?.released, [])
+  assert.deepEqual(runtimes[0]?.activated, ['dsh-selection-toolbar', 'dsh-floating-ball'])
+  assert.deepEqual(runtimes[0]?.received, [['config-changed', {}]])
+})
+
+test('关闭某个功能时只停这一个功能', async (t) => {
+  const { controller, runtimes, cleanup } = setup()
+  t.after(cleanup)
+  await controller.start()
+  const config = defaultDesktopToolsConfig()
+  // 只关悬浮球：划词仍启用，划词插件保持运行。
+  const result = await controller.update({ ...config, floatingBall: { ...config.floatingBall, enabled: false } })
+  assert.equal(result.applied, true)
+  assert.equal(runtimes.length, 1)
+  assert.deepEqual(runtimes[0]?.released, ['dsh-floating-ball'])
+  assert.equal(result.snapshot.features.floatingBall.phase, 'disabled')
+  assert.equal(result.snapshot.features.selection.phase, 'active')
+})
+
+test('全部功能关闭时停止辅助进程', async (t) => {
+  const { controller, runtimes, cleanup } = setup()
+  t.after(cleanup)
+  await controller.start()
+  const config = defaultDesktopToolsConfig()
+  const snapshot = (await controller.update({ ...config, selection: { ...config.selection, enabled: false }, floatingBall: { ...config.floatingBall, enabled: false } })).snapshot
+  assert.equal(snapshot.runtime, 'stopped')
+  assert.equal(runtimes[0]?.disposed, 1)
+})
+
+test('辅助进程状态异常或通知失败时回退为整体重建', async (t) => {
+  const degraded = setup({ failing: ['dsh-floating-ball'] })
+  t.after(degraded.cleanup)
+  const snapshot = await degraded.controller.start()
+  await degraded.controller.update(snapshot.config)
+  assert.equal(degraded.runtimes.length, 2)
+
+  const broken = setup({ commands: { 'config-changed': new Error('helper busy') } })
+  t.after(broken.cleanup)
+  await broken.controller.start()
+  const config = defaultDesktopToolsConfig()
+  const result = await broken.controller.update({ ...config, selection: { ...config.selection, targetLanguage: '日本語' } })
+  assert.equal(result.applied, true)
+  assert.equal(broken.runtimes.length, 2)
+  assert.equal(broken.runtimes[0]?.disposed, 1)
+})
+
+test('语言切换转发给运行中的辅助进程，未运行时忽略', async (t) => {
+  const { controller, runtimes, cleanup } = setup()
+  t.after(cleanup)
+  await controller.localeChanged('en')
+  assert.equal(runtimes.length, 0)
+  await controller.start()
+  await controller.localeChanged('ja')
+  assert.deepEqual(runtimes[0]?.received, [['locale-changed', { preference: 'ja' }]])
+})
+
+test('清空历史直接删除目录，截图录屏运行时通知历史窗刷新', async (t) => {
+  const { controller, runtimes, profileDir, cleanup } = setup({ config: withCapture(defaultDesktopToolsConfig()) })
+  t.after(cleanup)
+  const directory = join(profileDir, 'desktop-tools', 'history')
+  mkdirSync(directory, { recursive: true })
+  writeFileSync(join(directory, 'history.json'), '[]')
+  await controller.clearHistory()
+  assert.equal(existsSync(directory), false)
+  assert.deepEqual(runtimes, [])
+  await controller.start()
+  await controller.clearHistory()
+  assert.deepEqual(runtimes[0]?.received.map(([name]) => name), ['history-changed'])
 })
 
 test('保存时附带未能注册的快捷键，全部成功时省略', async (t) => {

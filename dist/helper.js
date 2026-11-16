@@ -7,6 +7,14 @@ import { BrowserWindow, Menu, Tray, app, ipcMain, nativeImage, protocol, session
 import { z } from "zod";
 // source/apps/desktop/src/desktop-feature-host.ts
 /** 桌面扩展的原生资源、IPC 与跨扩展服务随各自作用域释放。 */
+/** @param listeners 监听集合。 @param label 日志中的事件名。 */
+function notifyAll(listeners, label) {
+	for (const listener of listeners) try {
+		listener();
+	} catch (error) {
+		console.error(`桌面扩展处理${label}失败`, error);
+	}
+}
 /** 单个扩展的注册作用域；卸载先停入口，再逆序释放异步资源。 */
 var DesktopFeatureContext = class {
 	extension;
@@ -19,6 +27,8 @@ var DesktopFeatureContext = class {
 	readyListeners = /* @__PURE__ */ new Set();
 	activateListeners = /* @__PURE__ */ new Set();
 	guardListeners = /* @__PURE__ */ new Set();
+	configListeners = /* @__PURE__ */ new Set();
+	localeListeners = /* @__PURE__ */ new Set();
 	protocols = /* @__PURE__ */ new Set();
 	menus = /* @__PURE__ */ new Set();
 	stopped = false;
@@ -99,6 +109,14 @@ var DesktopFeatureContext = class {
 	onGuardReset(listener) {
 		this.guardListeners.add(listener);
 	}
+	/** @param listener 设置页保存后，本扩展仍在运行时就地重读配置。 */
+	onConfig(listener) {
+		this.configListeners.add(listener);
+	}
+	/** @param listener DSH 切换界面语言后刷新本扩展的文案。 */
+	onLocale(listener) {
+		this.localeListeners.add(listener);
+	}
 	/** @param handler 返回本扩展资源的响应，未匹配时返回 undefined。 */
 	protocol(handler) {
 		this.protocols.add(handler);
@@ -167,6 +185,14 @@ var DesktopFeatureContext = class {
 	resetGuard() {
 		if (!this.stopped) for (const listener of this.guardListeners) listener();
 	}
+	/** 通知配置已更新；单个监听失败只记录，不影响其他监听。 */
+	configChanged() {
+		if (!this.stopped) notifyAll(this.configListeners, "配置更新");
+	}
+	/** 通知界面语言已切换。 */
+	localeChanged() {
+		if (!this.stopped) notifyAll(this.localeListeners, "语言切换");
+	}
 	/** @param request 自定义协议请求。 @returns 本扩展匹配的响应。 */
 	serve(request) {
 		if (!this.stopped) for (const handler of this.protocols) {
@@ -205,6 +231,8 @@ var DesktopFeatureContext = class {
 		this.readyListeners.clear();
 		this.activateListeners.clear();
 		this.guardListeners.clear();
+		this.configListeners.clear();
+		this.localeListeners.clear();
 		this.protocols.clear();
 		this.menus.clear();
 	}
@@ -333,6 +361,14 @@ var DesktopFeatureHost = class {
 	/** 复位所有扩展原生覆盖。 */
 	resetGuard() {
 		for (const { context, active } of this.scopes.values()) if (active) context.resetGuard();
+	}
+	/** 通知所有运行中的扩展重读配置。 */
+	configChanged() {
+		for (const { context, active } of this.scopes.values()) if (active) context.configChanged();
+	}
+	/** 通知所有运行中的扩展界面语言已切换。 */
+	localeChanged() {
+		for (const { context, active } of this.scopes.values()) if (active) context.localeChanged();
 	}
 	/** 广播当前后端可用状态。 */
 	publishState() {
@@ -1033,6 +1069,19 @@ const en = {
 	capturePinsHide: "Hide",
 	capturePinsCopy: "Copy",
 	capturePinsSave: "Save",
+	captureHistoryOpen: "Capture history…",
+	captureHistoryTitle: "Capture history",
+	captureHistoryKindImage: "Screenshot",
+	captureHistoryCopyImage: "Copy image",
+	captureHistoryCopyText: "Copy text",
+	captureHistoryCopied: "Copied.",
+	captureHistoryReveal: "Show in folder",
+	captureHistoryDelete: "Delete",
+	captureHistoryClear: "Clear all",
+	captureHistoryClearConfirm: "Delete all capture history? Files you saved yourself are kept.",
+	captureHistoryEmpty: "No history yet. Screenshots you copy, save, pin, or forward, recognized text, answers, and saved recordings appear here.",
+	captureHistoryNotice: "Stored on this computer in {path}, up to 100 entries. Turn it off in Settings → Desktop tools → Screenshot.",
+	captureHistoryDisabled: "History is turned off, so new captures are not recorded. Turn it on in Settings → Desktop tools → Screenshot.",
 	captureResultOcr: "Extracted text",
 	captureResultTranslate: "Translation",
 	captureResultGraph: "Knowledge graph",
@@ -1532,6 +1581,19 @@ const dictionaries = {
 		capturePinsHide: "隐藏",
 		capturePinsCopy: "复制",
 		capturePinsSave: "保存",
+		captureHistoryOpen: "截图历史…",
+		captureHistoryTitle: "截图历史",
+		captureHistoryKindImage: "截图",
+		captureHistoryCopyImage: "复制图片",
+		captureHistoryCopyText: "复制文字",
+		captureHistoryCopied: "已复制。",
+		captureHistoryReveal: "打开所在文件夹",
+		captureHistoryDelete: "删除",
+		captureHistoryClear: "全部清空",
+		captureHistoryClearConfirm: "确定清空全部截图历史吗？你自己保存的文件不会被删除。",
+		captureHistoryEmpty: "还没有历史记录。复制、保存、钉图、转发的截图，识别结果、回答，以及保存的录屏都会出现在这里。",
+		captureHistoryNotice: "保存在本机 {path}，最多 100 条。可在「设置 → 桌面工具 → 截图」中关闭。",
+		captureHistoryDisabled: "历史已关闭，新的截图不会被记录。可在「设置 → 桌面工具 → 截图」中重新打开。",
 		captureResultOcr: "提取文字",
 		captureResultTranslate: "翻译",
 		captureResultGraph: "知识图谱",
@@ -2982,7 +3044,8 @@ async function main() {
 	const profile = process.argv.find((value) => value.startsWith("--dsh-profile="))?.slice(14);
 	if (!profile) throw new Error("Missing DSH profile directory");
 	const transport = new NativeTransport(send);
-	const locale = resolveDesktopStartupLocale(null, app.getPreferredSystemLanguages());
+	const startupPreference = process.argv.find((value) => value.startsWith("--dsh-locale="))?.slice(13);
+	let locale = resolveDesktopStartupLocale(startupPreference || null, app.getPreferredSystemLanguages());
 	let tray;
 	const refreshMenu = () => {
 		tray?.setContextMenu(Menu.buildFromTemplate(features.menuItems()));
@@ -3082,10 +3145,11 @@ async function main() {
 					if (!("command" in message) || typeof message.command !== "string" || !("input" in message) || typeof message.input !== "object" || message.input === null) throw new Error("桌面工具命令格式无效");
 					const input = message.input;
 					let value;
-					if (message.command === "capture-open" && "mode" in input && (input.mode === "image" || input.mode === "video" || input.mode === "long" || input.mode === "pins")) {
+					if (message.command === "capture-open" && "mode" in input && (input.mode === "image" || input.mode === "video" || input.mode === "long" || input.mode === "pins" || input.mode === "history")) {
 						const capture = features.service("capture");
 						if (capture === void 0) throw new Error("截图录屏功能尚未启用");
 						if (input.mode === "pins") capture.pins.manage();
+						else if (input.mode === "history") capture.history.open();
 						else capture.open(input.mode).catch((error) => {
 							console.error("截图录屏启动失败", error);
 						});
@@ -3096,7 +3160,14 @@ async function main() {
 						const orb = features.service("orb");
 						if (orb === void 0) throw new Error("悬浮球功能尚未启用");
 						value = await orb.openSystemPermission(input.right);
-					} else if (message.command === "shortcuts-status") {
+					} else if (message.command === "config-changed") features.configChanged();
+					else if (message.command === "locale-changed") {
+						locale = resolveDesktopStartupLocale("preference" in input && typeof input.preference === "string" && input.preference.length <= 32 ? input.preference : null, app.getPreferredSystemLanguages());
+						features.localeChanged();
+						refreshMenu();
+						for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send(DESKTOP_IPC.localeChanged, locale);
+					} else if (message.command === "history-changed") features.service("capture")?.history.changed();
+					else if (message.command === "shortcuts-status") {
 						const capture = features.service("capture");
 						if (capture === void 0) throw new Error("截图录屏功能尚未启用");
 						value = capture.shortcuts();

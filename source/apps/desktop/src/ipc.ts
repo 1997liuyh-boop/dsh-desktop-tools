@@ -114,7 +114,9 @@ export interface DshDesktopApi {
   }
   readonly protocolVersion: 1
 
-  locale(): Promise<{ readonly id: 'en' | 'zh-CN'; readonly messages: Readonly<Record<string, string>> }>
+  locale(): Promise<{ readonly id: string; readonly messages: Readonly<Record<string, string>> }>
+  /** DSH 切换界面语言后触发；返回取消订阅函数。 */
+  onLocaleChanged(listener: () => void): () => void
   readonly backend: {
     status(): Promise<{ readonly phase: 'starting' | 'ready' | 'error'; readonly message?: string }>
     subscribe(listener: (state: { readonly phase: 'starting' | 'ready' | 'error'; readonly message?: string }) => void): () => void

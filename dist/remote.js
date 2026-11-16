@@ -35,11 +35,13 @@ const spec = {
 		"desktopTools/restart": method("restart", [], json),
 		"desktopTools/installVision": method("installVision", [], json),
 		"desktopTools/diagnose": method("diagnose", [], json),
+		"desktopTools/clearHistory": method("clearHistory", [], json),
 		"desktopTools/openCapture": method("openCapture", [parameter("mode", z.enum([
 			"image",
 			"video",
 			"long",
-			"pins"
+			"pins",
+			"history"
 		]))], z.object({ opened: z.literal(true) })),
 		"desktopTools/avatar": method("avatar", [], z.object({
 			dataUrl: z.string().optional(),

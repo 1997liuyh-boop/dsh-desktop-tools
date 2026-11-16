@@ -27,6 +27,7 @@ const scripts = [
   ['source/apps/desktop/src/capture-ui/pin.ts', 'DshCapturePin', 'capture-pin.js'],
   ['source/apps/desktop/src/capture-ui/result.ts', 'DshCaptureResult', 'capture-result.js'],
   ['source/apps/desktop/src/capture-ui/pins.ts', 'DshCapturePins', 'capture-pins.js'],
+  ['source/apps/desktop/src/capture-ui/history.ts', 'DshCaptureHistory', 'capture-history.js'],
 ]
 
 for (const [entry, name, fileName] of scripts) {

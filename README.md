@@ -12,7 +12,7 @@ Use DSH Desktop `>=0.2.2-rc.1 <0.3.0-0`, then add this repository as one plugin:
 https://github.com/1997liuyh-boop/dsh-desktop-tools.git
 ```
 
-Install tag `0.6.0`. The plugin includes its own helper, preload, native feature modules, static assets, and settings page. No separate `dsh-desktop-runtime`, `dsh-selection-toolbar`, `dsh-floating-ball`, or `dsh-capture` package is required.
+Install tag `0.7.0`. The plugin includes its own helper, preload, native feature modules, static assets, and settings page. No separate `dsh-desktop-runtime`, `dsh-selection-toolbar`, `dsh-floating-ball`, or `dsh-capture` package is required.
 
 Installation does not require an Electron `path.txt` file and does not use the `koffi` install script. The helper loads the matching prebuilt Koffi platform package.
 
@@ -75,7 +75,7 @@ Platform limits:
 
 ## Replace earlier plugins
 
-If the profile already has any of the four earlier entries, remove `dsh-selection-toolbar`, `dsh-floating-ball`, `dsh-capture`, and `dsh-desktop-runtime` before installing `dsh-desktop-tools@0.6.0`, then restart the Host. The new plugin stores settings in `desktop-tools.json`; it does not import the retired packages' separate settings files. Its defaults enable the selection toolbar and floating assistant, and disable screenshots and recording.
+If the profile already has any of the four earlier entries, remove `dsh-selection-toolbar`, `dsh-floating-ball`, `dsh-capture`, and `dsh-desktop-runtime` before installing `dsh-desktop-tools@0.7.0`, then restart the Host. The new plugin stores settings in `desktop-tools.json`; it does not import the retired packages' separate settings files. Its defaults enable the selection toolbar and floating assistant, and disable screenshots and recording.
 
 ## Settings
 
@@ -88,6 +88,12 @@ The DSH settings panel adds one **Desktop tools** entry with five submenus:
 - Diagnostics: checks the configuration file, the helper Electron (path and version against DSH), the Koffi native module, the helper process and each tool, global shortcut registration, dsh-vision-router, and macOS system permissions. Each item shows OK, Needs attention, Error, or Not applicable; restarting the helper, installing or enabling dsh-vision-router, and opening system permissions can be done from the item. **Copy report** copies a plain-text report to attach to an issue.
 
 Shortcuts are global; a combination already taken by another program is not registered; the Diagnostics tab lists it, so choose another one. Selection and floating assistant are enabled by default. Screenshot and recording are disabled by default. Configuration is stored in the profile's `desktop-tools.json`; each save reports both persistence and actual helper application status.
+
+Saving settings only starts or stops the tools whose switch changed; tools that stay on pick up the new settings in place (shortcuts are re-registered, selection buttons and language, recording defaults, and so on apply at once), so open result windows, the floating assistant conversation, and pins stay open. Turning off screenshots, for example, only closes screenshot windows. **Restart helper** on the Diagnostics tab still rebuilds everything.
+
+The desktop tools follow the DSH language setting: after you switch languages in DSH, the tray menu, the floating ball right-click menu, the selection toolbar, and windows opened afterwards use the new language; the floating assistant panel updates the next time it starts.
+
+Capture history (on by default): screenshots you copy, save, pin, or forward, Extract text / Translate / Knowledge graph / Ask results, and saved recording paths are recorded in the profile under `desktop-tools/history/` (up to 100 entries). Open the history window from the tray **Capture history…**, the floating ball menu, or settings to copy an image or text, ask again, pin, show the file in its folder, delete, or clear everything. Turn recording off or clear it under Settings → Desktop tools → Screenshot; clearing never deletes files you saved yourself.
 
 ## Build
 

@@ -123,7 +123,8 @@ function defaultDesktopToolsConfig(platform = process.platform) {
 			systemAudio: platform !== "linux",
 			microphone: false,
 			knowledgeGraph: false
-		}
+		},
+		history: { enabled: true }
 	};
 }
 function isRecord(value) {
@@ -207,7 +208,8 @@ function parseDesktopToolsConfig(value) {
 			systemAudio: optionalBoolean(recording, "systemAudio", process.platform !== "linux"),
 			microphone: optionalBoolean(recording, "microphone", false),
 			knowledgeGraph: optionalBoolean(recording, "knowledgeGraph", false)
-		}
+		},
+		history: { enabled: optionalBoolean(isRecord(value.history) ? value.history : {}, "enabled", true) }
 	};
 }
 /** @param profileDir 当前 DSH profile。 @returns 磁盘配置；文件不存在时返回首次安装默认值。 */

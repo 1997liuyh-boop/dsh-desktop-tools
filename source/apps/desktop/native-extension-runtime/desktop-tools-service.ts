@@ -12,6 +12,7 @@ import {
 } from '../src/desktop-tools-config.ts'
 import { buildDiagnostics, type DiagnosticElectron, type DiagnosticInput } from '../src/desktop-diagnostics.ts'
 import { locateKoffiPlatform } from '../src/koffi-platform.ts'
+import { HistoryStore } from '../src/capture-history-store.ts'
 import type { CaptureShortcutStatus } from '../src/capture-shortcuts.ts'
 import { captureVisionStatus, installCaptureVision, type CaptureVisionContext } from './capture-vision.ts'
 import { helperExecutableCandidates, isPackagedHost } from './helper-executable.ts'
@@ -33,11 +34,17 @@ interface DesktopFeatureDescriptor {
   readonly assets: string
 }
 
+/** Host 发给辅助进程的命令。 */
+export type DesktopRuntimeCommand = 'capture-open' | 'permissions-status' | 'permission-open' | 'avatar-refresh' | 'shortcuts-status'
+  | 'config-changed' | 'locale-changed' | 'history-changed'
+
 interface DesktopRuntime {
   activate(descriptor: DesktopFeatureDescriptor): Promise<() => Promise<void>>
-  command(command: 'capture-open' | 'permissions-status' | 'permission-open' | 'avatar-refresh' | 'shortcuts-status', input: {
-    readonly mode?: 'image' | 'video' | 'long' | 'pins'
+  command(command: DesktopRuntimeCommand, input: {
+    readonly mode?: 'image' | 'video' | 'long' | 'pins' | 'history'
     readonly right?: 'screen' | 'accessibility'
+    /** locale-changed：DSH 的语言偏好，null 表示跟随系统。 */
+    readonly preference?: string | null
   }): Promise<unknown>
   /** 辅助进程上报的 Electron 版本；未启动时为 undefined。 */
   helperElectronVersion?(): string | undefined
@@ -116,7 +123,7 @@ export class DesktopToolsController {
         recording: { ...current.recording, enabled: false },
       } : { ...current, [feature]: { ...current[feature], enabled: false } }
       writeDesktopToolsConfig(this.options.profileDir, this.config)
-      return this.reconcile()
+      return this.apply()
     })
   }
 
@@ -126,7 +133,7 @@ export class DesktopToolsController {
     writeDesktopToolsConfig(this.options.profileDir, config)
     this.config = config
     try {
-      const snapshot = await this.exclusive(() => this.reconcile())
+      const snapshot = await this.exclusive(() => this.apply())
       const applied = this.isApplied(snapshot)
       // 功能启动成功不代表快捷键可用：被其他程序占用时只能从辅助进程读到。
       const failed = applied ? (await this.readShortcuts())?.status?.failed ?? [] : []
@@ -139,6 +146,26 @@ export class DesktopToolsController {
 
   /** @returns 重新创建辅助进程后的状态。 */
   restart(): Promise<DesktopToolsSnapshot> { return this.exclusive(() => this.reconcile()) }
+
+  /**
+   * 清空截图历史。直接在 Host 中删除目录，截图录屏未运行时也能清空；之后通知已打开的历史窗刷新。
+   * @returns 清空结果。
+   */
+  async clearHistory(): Promise<{ readonly cleared: true }> {
+    new HistoryStore(join(this.options.profileDir, 'desktop-tools', 'history')).clear()
+    if (this.runtime !== undefined && this.statuses.get('capture')?.phase === 'active') {
+      await this.runtime.command('history-changed', {}).catch((error: unknown) => {
+        this.options.ctx.logger.warn('通知历史窗刷新失败: %s', errorText(error))
+      })
+    }
+    return { cleared: true }
+  }
+
+  /** @param preference DSH 新的语言偏好；辅助进程未运行时忽略，下次启动会读取最新值。 */
+  async localeChanged(preference: string | null): Promise<void> {
+    if (this.runtime === undefined || this.releases.size === 0) return
+    await this.runtime.command('locale-changed', { preference })
+  }
 
   /** @returns 重新读取前置视觉插件状态后的快照。 */
   async refreshedSnapshot(): Promise<DesktopToolsSnapshot> {
@@ -237,9 +264,9 @@ export class DesktopToolsController {
   }
 
   /** @param mode 截图、录屏或长截图。 */
-  async openCapture(mode: 'image' | 'video' | 'long' | 'pins'): Promise<void> {
+  async openCapture(mode: 'image' | 'video' | 'long' | 'pins' | 'history'): Promise<void> {
     // 钉图随截图录屏功能恢复，只开录屏时也能管理已有钉图。
-    const enabled = mode === 'pins' ? this.config.screenshot.enabled || this.config.recording.enabled
+    const enabled = mode === 'pins' || mode === 'history' ? this.config.screenshot.enabled || this.config.recording.enabled
       : mode === 'video' ? this.config.recording.enabled : this.config.screenshot.enabled
     if (!enabled) throw new Error(mode === 'video' ? '录屏功能未启用' : '截图功能未启用')
     if (this.statuses.get('capture')?.phase !== 'active' || this.runtime === undefined) throw new Error('截图录屏功能尚未就绪')
@@ -306,6 +333,42 @@ export class DesktopToolsController {
     const result = this.queue.then(operation)
     this.queue = result.then(() => undefined, () => undefined)
     return result
+  }
+
+  /**
+   * 按配置差异更新：只启停开关发生变化的功能，仍在运行的功能就地重读配置，不关闭已打开的窗口。
+   * 辅助进程未运行、状态异常或任一步失败时，回退为整体重建。
+   */
+  private async apply(): Promise<DesktopToolsSnapshot> {
+    if (this.closed) throw new Error('桌面工具控制器已关闭')
+    const runtime = this.runtime
+    const healthy = runtime !== undefined && this.runtimeError === undefined
+      && FEATURE_ORDER.every(id => this.statuses.get(id)?.phase !== 'error' && this.statuses.get(id)?.phase !== 'starting')
+    const wanted = new Set(this.enabledFeatures())
+    if (!healthy || wanted.size === 0) return this.reconcile()
+    try {
+      for (const id of [...FEATURE_ORDER].reverse()) {
+        const release = this.releases.get(id)
+        if (release === undefined || wanted.has(id)) continue
+        await release()
+        this.releases.delete(id)
+        this.statuses.set(id, { phase: 'disabled' })
+      }
+      // 先让仍在运行的功能重读配置，再启动新增功能（新功能启动时自然读取最新配置）。
+      if (this.releases.size > 0) await runtime.command('config-changed', {})
+      for (const id of FEATURE_ORDER) {
+        if (!wanted.has(id) || this.releases.has(id)) continue
+        this.statuses.set(id, { phase: 'starting' })
+        this.releases.set(id, await runtime.activate(this.descriptor(id)))
+      }
+      for (const id of this.releases.keys()) {
+        this.statuses.set(id, { phase: id === 'selection' && !this.config.selection.enabled ? 'disabled' : 'active' })
+      }
+      return this.snapshot()
+    } catch (error: unknown) {
+      this.options.ctx.logger.warn('桌面工具按需更新失败，改为整体重建: %s', errorText(error))
+      return this.reconcile()
+    }
   }
 
   private async reconcile(): Promise<DesktopToolsSnapshot> {
@@ -405,7 +468,7 @@ export class DesktopToolsController {
 
 /** 通过 Gateway 公开给设置客户端的方法。 */
 const REMOTE_METHODS = [
-  'snapshot', 'installVision', 'update', 'restart', 'openCapture', 'diagnose',
+  'snapshot', 'installVision', 'update', 'restart', 'openCapture', 'diagnose', 'clearHistory',
   'avatar', 'setAvatar', 'restoreAvatar', 'systemPermissions', 'openSystemPermission',
 ] as const
 
@@ -456,8 +519,11 @@ export class DesktopToolsService extends TypertRemoteService {
   /** @returns 逐项诊断结果与运行环境摘要。 */
   diagnose(): Promise<DesktopDiagnostics> { return this.controller.diagnose() }
 
+  /** @returns 清空截图历史的结果。 */
+  clearHistory(): Promise<{ readonly cleared: true }> { return this.controller.clearHistory() }
+
   /** @param mode 截图、录屏或长截图。 */
-  async openCapture(mode: 'image' | 'video' | 'long' | 'pins'): Promise<{ readonly opened: true }> {
+  async openCapture(mode: 'image' | 'video' | 'long' | 'pins' | 'history'): Promise<{ readonly opened: true }> {
     await this.controller.openCapture(mode)
     return { opened: true }
   }

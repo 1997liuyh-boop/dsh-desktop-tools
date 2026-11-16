@@ -94,6 +94,15 @@ test('旧配置缺少自定义动作与按钮列表时使用默认值', () => {
   assert.equal(parsed.screenshot.pinsShortcut, '')
 })
 
+test('截图历史默认开启，旧配置缺少该项时也开启，开关值能保存', () => {
+  const config = defaultDesktopToolsConfig('win32')
+  assert.equal(config.history.enabled, true)
+  const { history: _history, ...legacy } = config
+  assert.equal(parseDesktopToolsConfig(legacy).history.enabled, true)
+  assert.equal(parseDesktopToolsConfig({ ...config, history: { enabled: false } }).history.enabled, false)
+  assert.throws(() => parseDesktopToolsConfig({ ...config, history: { enabled: 'no' } }), /布尔值/u)
+})
+
 test('按钮列表去重并丢弃未知按钮和已删除的自定义动作', () => {
   const config = defaultDesktopToolsConfig('win32')
   const parsed = parseDesktopToolsConfig({ ...config, selection: {

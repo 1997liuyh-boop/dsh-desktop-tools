@@ -1,4 +1,4 @@
-import { i as writeDesktopToolsConfig, r as readDesktopToolsConfig } from "./desktop-tools-config-A_wdY9X1.js";
+import { i as writeDesktopToolsConfig, r as readDesktopToolsConfig } from "./desktop-tools-config-C0hCUcBZ.js";
 import { BrowserWindow, Menu, screen, systemPreferences } from "electron";
 // source/apps/desktop/src/floating-agent-menu.ts
 const CURRENT_MODEL_MARK = "✓ ";
@@ -124,6 +124,11 @@ function floatingContextMenuTemplate(params, messages, onOpenMain, actions, agen
 			label: messages.capturePinsManage,
 			enabled: actions.pinsEnabled?.() ?? true,
 			click: actions.pins
+		}],
+		...actions.history === void 0 ? [] : [{
+			label: messages.captureHistoryOpen,
+			enabled: actions.pinsEnabled?.() ?? true,
+			click: actions.history
 		}],
 		{ type: "separator" },
 		{
@@ -649,7 +654,7 @@ function createFloatingWindow(preload, messages, onOpenMain, actions, agents, mi
 	if (process.platform === "darwin") window.setAlwaysOnTop(true, OVERLAY_ALWAYS_ON_TOP_LEVEL, 1);
 	window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 	window.webContents.on("context-menu", (_event, params) => {
-		popupFloatingContextMenu(window, params, messages, onOpenMain, actions, agents, millifraction);
+		popupFloatingContextMenu(window, params, messages(), onOpenMain, actions, agents, millifraction);
 	});
 	return window;
 }

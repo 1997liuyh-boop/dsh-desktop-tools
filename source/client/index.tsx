@@ -19,9 +19,10 @@ interface DesktopToolsRemote {
   snapshot(): Promise<RemoteResult<DesktopToolsSnapshot>>
   update(config: DesktopToolsConfig): Promise<RemoteResult<DesktopToolsUpdateResult>>
   restart(): Promise<RemoteResult<DesktopToolsSnapshot>>
-  openCapture(mode: 'image' | 'video' | 'long' | 'pins'): Promise<RemoteResult<{ readonly opened: true }>>
+  openCapture(mode: 'image' | 'video' | 'long' | 'pins' | 'history'): Promise<RemoteResult<{ readonly opened: true }>>
   installVision(): Promise<RemoteResult<{ readonly snapshot: DesktopToolsSnapshot; readonly restartRequired: boolean }>>
   diagnose(): Promise<RemoteResult<DesktopDiagnostics>>
+  clearHistory(): Promise<RemoteResult<{ readonly cleared: true }>>
   avatar(): Promise<RemoteResult<{ readonly dataUrl?: string; readonly defaultDataUrl?: string }>>
   setAvatar(dataUrl: string, fileName: string): Promise<RemoteResult<{ readonly saved: boolean; readonly applied: boolean; readonly error?: string }>>
   restoreAvatar(): Promise<RemoteResult<{ readonly saved: boolean; readonly applied: boolean; readonly error?: string }>>
@@ -66,6 +67,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       installVision: () => tools().installVision(),
       openCapture: mode => tools().openCapture(mode),
       diagnose: () => tools().diagnose(),
+      clearHistory: () => tools().clearHistory(),
       async modelCatalog() {
         if (sessionRemote === undefined) return undefined
         const result = await sessionRemote.modelCatalog()

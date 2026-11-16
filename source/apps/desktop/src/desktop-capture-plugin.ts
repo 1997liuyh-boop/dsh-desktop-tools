@@ -14,6 +14,8 @@ declare module './desktop-feature-host.ts' {
       shortcuts(): CaptureShortcutStatus
       /** 钉图管理：数量与打开管理窗。 */
       pins: { count(): number; manage(): void }
+      /** 截图历史：打开历史窗；Host 清空历史后刷新已打开的窗口。 */
+      history: { open(): void; changed(): void }
     }
   }
 }
@@ -22,14 +24,15 @@ declare module './desktop-feature-host.ts' {
 export const shellAssets = [
   '/capture.html', '/capture.js', '/capture.css', '/capture.tw.css', '/capture-frame.html',
   '/capture-pin.html', '/capture-pin.js', '/capture-result.html', '/capture-result.js', '/capture-result.css',
-  '/capture-pins.html', '/capture-pins.js',
+  '/capture-pins.html', '/capture-pins.js', '/capture-history.html', '/capture-history.js',
   '/mermaid.min.js', '/selection-markdown.js', '/shell-theme.js', '/assets/window-material.css',
 ]
 
 /** @param context 当前安装包的原生资源作用域。 */
 export function activate(context: DesktopFeatureContext): void {
   const environment = context.environment
-  const config = readDesktopToolsConfig(environment.profile)
+  // 设置页保存后由 onConfig 就地替换，不需要重启本功能。
+  let config = readDesktopToolsConfig(environment.profile)
   const capture = new DesktopCapture({
     directory: environment.profile,
     preload: environment.preload,
@@ -57,23 +60,33 @@ export function activate(context: DesktopFeatureContext): void {
   context.provide('capture', {
     open, allowsDisplayMedia: contents => capture.allowsDisplayMedia(contents), shortcuts: () => shortcutStatus,
     pins: { count: () => capture.pinCount(), manage: () => { capture.openPinsManager() } },
+    history: { open: () => { capture.openHistory() }, changed: () => { capture.historyChanged() } },
   })
   context.registerSender(event => capture.owns(event))
-  // 保存设置会重启辅助进程，钉图从磁盘恢复，不会因此消失。
+  // 截图录屏功能重启（例如重新启用）时，钉图从磁盘恢复。
   capture.restorePins()
 
-  // 系统级快捷键：DSH 主窗口不在前台时同样可以唤起。
-  shortcutStatus = registerCaptureShortcuts([
-    { accelerator: config.screenshot.shortcut, mode: 'image', enabled: config.screenshot.enabled },
-    { accelerator: config.screenshot.longShortcut, mode: 'long', enabled: config.screenshot.enabled },
-    { accelerator: config.screenshot.pinsShortcut, mode: 'pins', enabled: config.screenshot.enabled },
-    { accelerator: config.recording.shortcut, mode: 'video', enabled: config.recording.enabled },
-  ], (accelerator, mode) => globalShortcut.register(accelerator, () => { launch(mode) }))
-  for (const { accelerator, reason } of shortcutStatus.failed) {
-    console.warn(reason === 'occupied' ? `截图录屏快捷键已被其他程序占用: ${accelerator}` : `截图录屏快捷键无效: ${accelerator}`)
+  /** 系统级快捷键：DSH 主窗口不在前台时同样可以唤起。重复调用会先注销上一次注册的组合。 */
+  const registerShortcuts = (): void => {
+    for (const accelerator of shortcutStatus.registered) globalShortcut.unregister(accelerator)
+    shortcutStatus = registerCaptureShortcuts([
+      { accelerator: config.screenshot.shortcut, mode: 'image', enabled: config.screenshot.enabled },
+      { accelerator: config.screenshot.longShortcut, mode: 'long', enabled: config.screenshot.enabled },
+      { accelerator: config.screenshot.pinsShortcut, mode: 'pins', enabled: config.screenshot.enabled },
+      { accelerator: config.recording.shortcut, mode: 'video', enabled: config.recording.enabled },
+    ], (accelerator, mode) => globalShortcut.register(accelerator, () => { launch(mode) }))
+    for (const { accelerator, reason } of shortcutStatus.failed) {
+      console.warn(reason === 'occupied' ? `截图录屏快捷键已被其他程序占用: ${accelerator}` : `截图录屏快捷键无效: ${accelerator}`)
+    }
   }
-  const registered = shortcutStatus.registered
-  context.effect(() => { for (const accelerator of registered) globalShortcut.unregister(accelerator) })
+  registerShortcuts()
+  context.effect(() => { for (const accelerator of shortcutStatus.registered) globalShortcut.unregister(accelerator) })
+  // 设置页保存：替换配置快照、重新注册快捷键、刷新托盘菜单；已打开的窗口不受影响。
+  context.onConfig(() => {
+    config = readDesktopToolsConfig(environment.profile)
+    registerShortcuts()
+    environment.changed()
+  })
 
   const messages = (): ReturnType<typeof environment.locale>['messages'] => environment.locale().messages
   context.menu(() => {
@@ -95,6 +108,7 @@ export function activate(context: DesktopFeatureContext): void {
       ] : []),
       ...(config.recording.enabled ? [{ label: messages().captureVideo, click: () => { launch('video') } }] : []),
       ...pins,
+      { label: messages().captureHistoryOpen, click: () => { capture.openHistory() } },
     ]
   })
 }

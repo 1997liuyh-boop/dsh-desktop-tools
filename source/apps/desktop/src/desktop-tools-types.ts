@@ -51,6 +51,10 @@ export interface DesktopToolsConfig {
     /** 默认是否在录制结束后生成知识图谱。 */
     readonly knowledgeGraph: boolean
   }
+  readonly history: {
+    /** 是否把截图、识别结果和录屏路径保存到本机历史（profile/desktop-tools/history）。 */
+    readonly enabled: boolean
+  }
 }
 
 /** 划词工具栏的内置按钮。 */
