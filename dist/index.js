@@ -159,6 +159,31 @@ var DesktopToolsController = class {
 	start() {
 		return this.exclusive(() => this.reconcile());
 	}
+	/** 从最新配置停用指定功能，保留辅助进程刚保存的模型等设置。 */
+	disableFeature(feature) {
+		return this.exclusive(async () => {
+			const current = readDesktopToolsConfig(this.options.profileDir);
+			this.config = feature === "capture" ? {
+				...current,
+				screenshot: {
+					...current.screenshot,
+					enabled: false
+				},
+				recording: {
+					...current.recording,
+					enabled: false
+				}
+			} : {
+				...current,
+				[feature]: {
+					...current[feature],
+					enabled: false
+				}
+			};
+			writeDesktopToolsConfig(this.options.profileDir, this.config);
+			return this.reconcile();
+		});
+	}
 	/** @param input 完整的新配置。 @returns 保存与应用结果。 */
 	async update(input) {
 		const config = parseDesktopToolsConfig(input);
@@ -295,7 +320,7 @@ var DesktopToolsController = class {
 			try {
 				const release = await runtime.activate(this.descriptor(id));
 				this.releases.set(id, release);
-				this.statuses.set(id, { phase: "active" });
+				this.statuses.set(id, { phase: id === "selection" && !this.config.selection.enabled ? "disabled" : "active" });
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				this.statuses.set(id, {
@@ -347,7 +372,7 @@ var DesktopToolsController = class {
 	enabledFeatures() {
 		return FEATURE_ORDER.filter((id) => {
 			if (id === "capture") return this.config.screenshot.enabled || this.config.recording.enabled;
-			if (id === "selection") return this.config.selection.enabled;
+			if (id === "selection") return this.config.selection.enabled || this.config.floatingBall.enabled;
 			return this.config.floatingBall.enabled;
 		});
 	}
@@ -690,6 +715,7 @@ var NativeRuntime = class {
 	ctx;
 	config;
 	onFailure;
+	onDisableFeature;
 	child;
 	started;
 	closed = false;
@@ -700,10 +726,11 @@ var NativeRuntime = class {
 	stopping;
 	disposing;
 	/** @param ctx 官方服务与当前配置目录。 @param config 进程等待时限与可执行文件覆盖。 */
-	constructor(ctx, config, onFailure) {
+	constructor(ctx, config, onFailure, onDisableFeature) {
 		this.ctx = ctx;
 		this.config = config;
 		this.onFailure = onFailure;
+		this.onDisableFeature = onDisableFeature;
 		this.bridge = createNativeHostBridge(ctx, (message) => this.send(message));
 	}
 	/** @param descriptor 安装包拥有的入口和资源。 @returns 仅释放本插件的操作。 */
@@ -844,6 +871,10 @@ var NativeRuntime = class {
 		child.on("message", (message) => {
 			if (this.bridge.handle(message)) return;
 			if (typeof message !== "object" || message === null || !("type" in message)) return;
+			if (message.type === "desktop-tools-disable-feature" && "feature" in message && (message.feature === "selection" || message.feature === "floatingBall" || message.feature === "capture")) {
+				this.onDisableFeature?.(message.feature);
+				return;
+			}
 			if (message.type === "desktop-tools-command-result" && "requestId" in message && typeof message.requestId === "string") {
 				const pending = this.waiting.get(message.requestId);
 				if (!pending) return;
@@ -975,7 +1006,11 @@ function apply(ctx, config) {
 		ctx,
 		profileDir: ctx.profileContext.dir,
 		root,
-		createRuntime: (onFailure) => new NativeRuntime(ctx, config, onFailure)
+		createRuntime: (onFailure) => new NativeRuntime(ctx, config, onFailure, (feature) => {
+			controller.disableFeature(feature).catch((error) => {
+				ctx.logger.error("桌面工具停用失败: %s", error instanceof Error ? error.message : String(error));
+			});
+		})
 	});
 	new DesktopToolsService(ctx, controller);
 	ctx.effect(() => {

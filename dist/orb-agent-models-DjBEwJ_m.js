@@ -90,6 +90,97 @@ function effortItems(provider, model, current, onSelect, defaultEffortLabel) {
 	});
 	return items.length === 0 ? void 0 : items;
 }
+// source/apps/desktop/src/floating-context-menu.ts
+/** 按快捷工具、主窗口、设置三组生成悬浮球原生菜单。 */
+function floatingContextMenuTemplate(params, messages, onOpenMain, actions, agents, millifraction) {
+	const labels = {
+		empty: messages.floatingNoModels,
+		defaultEffort: messages.floatingEffortDefault
+	};
+	const floatingSettings = agents === void 0 ? [] : floatingAgentModelItems(agents.catalog, agents.overlay, agents.onSelectOverlay, labels);
+	if (agents !== void 0 && agents.backgroundSupported !== false) floatingSettings.push({ type: "separator" }, {
+		label: messages.floatingBackgroundAgentSettings,
+		submenu: floatingAgentModelItems(agents.catalog, agents.background, agents.onSelectBackground, labels)
+	});
+	if (millifraction !== void 0) {
+		if (floatingSettings.length > 0) floatingSettings.push({ type: "separator" });
+		floatingSettings.push({
+			label: millifraction.enabled ? messages.millifractionDisable : messages.millifractionEnable,
+			click: millifraction.onToggle
+		});
+	}
+	const menu = [
+		{
+			label: messages.captureTitle,
+			enabled: actions.captureEnabled(),
+			click: actions.capture
+		},
+		{
+			label: messages.floatingWechat,
+			enabled: actions.wechatEnabled(),
+			click: actions.wechat
+		},
+		{ type: "separator" },
+		{
+			label: messages.floatingOpenMain,
+			click: onOpenMain
+		},
+		{ type: "separator" },
+		{
+			label: messages.floatingAgentMenu,
+			submenu: [{
+				label: messages.floatingAgentSettings,
+				enabled: floatingSettings.length > 0,
+				submenu: floatingSettings
+			}, {
+				label: messages.floatingSelectionModelSettings,
+				enabled: agents !== void 0,
+				submenu: agents === void 0 ? [] : floatingSelectionModelItems(agents.catalog, agents.selection, agents.onSelectSelection, {
+					...labels,
+					follow: messages.selectionModelFollow
+				})
+			}]
+		},
+		{
+			label: messages.floatingBasicSettings,
+			submenu: [
+				{
+					label: messages.floatingDisableSelection,
+					enabled: actions.selectionEnabled(),
+					click: actions.disableSelection
+				},
+				{
+					label: messages.floatingDisableBall,
+					click: actions.disableFloating
+				},
+				{
+					label: messages.floatingDisableCapture,
+					enabled: actions.captureEnabled(),
+					click: actions.disableCapture
+				}
+			]
+		},
+		{ type: "separator" },
+		{ label: messages.cancel }
+	];
+	if (!params.isEditable) return menu;
+	return [
+		{
+			role: "cut",
+			enabled: params.editFlags.canCut
+		},
+		{
+			role: "copy",
+			enabled: params.editFlags.canCopy
+		},
+		{
+			role: "paste",
+			enabled: params.editFlags.canPaste
+		},
+		{ type: "separator" },
+		...menu
+	];
+}
 const OVERLAY_ALWAYS_ON_TOP_LEVEL = "floating";
 function clamp$1(value, min, max) {
 	return Math.min(Math.max(value, min), Math.max(min, max));
@@ -271,73 +362,6 @@ function raiseOverlayAboveObservationFrame(overlay, toolbar) {
 function hideObservationFrame(window) {
 	if (window === void 0 || window.isDestroyed()) return;
 	window.hide();
-}
-// source/apps/desktop/src/floating-window.ts
-function floatingContextMenuTemplate(params, messages, onOpenMain, onQuit, selection, agents, millifraction) {
-	const labels = {
-		empty: messages.floatingNoModels,
-		defaultEffort: messages.floatingEffortDefault
-	};
-	const actions = [
-		{
-			label: messages.floatingOpenMain,
-			click: onOpenMain
-		},
-		{ type: "separator" },
-		...agents === void 0 ? [] : [
-			{
-				label: messages.floatingAgentSettings,
-				submenu: floatingAgentModelItems(agents.catalog, agents.overlay, agents.onSelectOverlay, labels)
-			},
-			...agents.backgroundSupported === false ? [] : [{
-				label: messages.floatingBackgroundAgentSettings,
-				submenu: floatingAgentModelItems(agents.catalog, agents.background, agents.onSelectBackground, labels)
-			}],
-			{
-				label: messages.floatingSelectionModelSettings,
-				submenu: floatingSelectionModelItems(agents.catalog, agents.selection, agents.onSelectSelection, {
-					...labels,
-					follow: messages.selectionModelFollow
-				})
-			},
-			{ type: "separator" }
-		],
-		{
-			label: messages.floatingQuit,
-			click: onQuit
-		}
-	];
-	if (selection !== void 0 || millifraction !== void 0) {
-		const extras = [];
-		if (selection !== void 0) extras.push({
-			label: selection.enabled ? messages.selectionToolbarDisable : messages.selectionToolbarEnable,
-			click: selection.onToggle
-		});
-		if (millifraction !== void 0) extras.push({
-			label: millifraction.enabled ? messages.millifractionDisable : messages.millifractionEnable,
-			click: millifraction.onToggle
-		});
-		extras.push({ type: "separator" });
-		const quitIndex = actions.findIndex((item) => item.label === messages.floatingQuit);
-		actions.splice(quitIndex, 0, ...extras);
-	}
-	if (!params.isEditable) return actions;
-	return [
-		{
-			role: "cut",
-			enabled: params.editFlags.canCut
-		},
-		{
-			role: "copy",
-			enabled: params.editFlags.canCopy
-		},
-		{
-			role: "paste",
-			enabled: params.editFlags.canPaste
-		},
-		{ type: "separator" },
-		...actions
-	];
 }
 const FLOATING_PANEL_SIZE = {
 	width: 320,
@@ -589,7 +613,7 @@ function presentOverlayWindow(window) {
 	}
 	if (process.platform === "win32") window.setAlwaysOnTop(true, "screen-saver");
 }
-function createFloatingWindow(preload, messages, onOpenMain, onQuit, selection, agents, millifraction, capture) {
+function createFloatingWindow(preload, messages, onOpenMain, actions, agents, millifraction) {
 	const bounds = collapsedWindowBounds(defaultFloatingBallOrigin(screen.getPrimaryDisplay().workArea));
 	const window = new BrowserWindow({
 		x: bounds.x,
@@ -620,17 +644,14 @@ function createFloatingWindow(preload, messages, onOpenMain, onQuit, selection, 
 	if (process.platform === "darwin") window.setAlwaysOnTop(true, OVERLAY_ALWAYS_ON_TOP_LEVEL, 1);
 	window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 	window.webContents.on("context-menu", (_event, params) => {
-		popupFloatingContextMenu(window, params, messages, onOpenMain, onQuit, selection, agents, millifraction, capture);
+		popupFloatingContextMenu(window, params, messages, onOpenMain, actions, agents, millifraction);
 	});
 	return window;
 }
-async function popupFloatingContextMenu(window, params, messages, onOpenMain, onQuit, selection, agents, millifraction, capture) {
+async function popupFloatingContextMenu(window, params, messages, onOpenMain, actions, agents, millifraction) {
 	const catalog = agents === void 0 ? void 0 : await agents.loadCatalog().catch(() => void 0);
 	if (window.isDestroyed()) return;
-	const template = floatingContextMenuTemplate(params, messages, onOpenMain, onQuit, selection === void 0 ? void 0 : {
-		enabled: selection.enabled(),
-		onToggle: selection.toggle
-	}, agents === void 0 ? void 0 : {
+	const template = floatingContextMenuTemplate(params, messages, onOpenMain, actions, agents === void 0 ? void 0 : {
 		catalog,
 		overlay: agents.overlay(),
 		background: agents.background(),
@@ -643,10 +664,6 @@ async function popupFloatingContextMenu(window, params, messages, onOpenMain, on
 		enabled: millifraction.enabled(),
 		onToggle: millifraction.toggle
 	});
-	if (capture) template.unshift({
-		label: messages.captureTitle,
-		click: capture
-	}, { type: "separator" });
 	Menu.buildFromTemplate(template).popup({ window });
 }
 function setFloatingExpanded(window, expanded) {

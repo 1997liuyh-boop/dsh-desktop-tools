@@ -8,7 +8,7 @@ import { createSelectionToolbarWindow, hideSelectionToolbar } from './selection-
 import type { DesktopFeatureContext } from './desktop-feature-host.ts'
 
 declare module './desktop-feature-host.ts' {
-  interface DesktopFeatureServices { selection: SelectionToolbarController }
+  interface DesktopFeatureServices { selection: SelectionToolbarController; wechat: { open(): void } }
 }
 
 /** 本扩展使用的界面和静态资源。 */
@@ -64,6 +64,9 @@ export async function activate(context: DesktopFeatureContext): Promise<void> {
   // 结果窗口管理器会在自己的清理中移除接口；作用域也记录接口，确保失败回滚。
   context.effect(selectionAssistant.register(ipc))
   context.provide('selection', selectionController)
+  context.provide('wechat', {
+    open: () => { selectionAssistant.open('wechat', '', selectionController.language()) },
+  })
   selectionController.setToolbarWindow(toolbar)
   toolbar.webContents.once('did-finish-load', () => { selectionController.publishState() })
   const requireToolbar = (event: IpcMainInvokeEvent): SelectionToolbarController => {

@@ -79,6 +79,20 @@ export class DesktopToolsController {
   /** @returns 首次后台应用完成后的状态。 */
   start(): Promise<DesktopToolsSnapshot> { return this.exclusive(() => this.reconcile()) }
 
+  /** 从最新配置停用指定功能，保留辅助进程刚保存的模型等设置。 */
+  disableFeature(feature: DesktopFeatureId): Promise<DesktopToolsSnapshot> {
+    return this.exclusive(async () => {
+      const current = readDesktopToolsConfig(this.options.profileDir)
+      this.config = feature === 'capture' ? {
+        ...current,
+        screenshot: { ...current.screenshot, enabled: false },
+        recording: { ...current.recording, enabled: false },
+      } : { ...current, [feature]: { ...current[feature], enabled: false } }
+      writeDesktopToolsConfig(this.options.profileDir, this.config)
+      return this.reconcile()
+    })
+  }
+
   /** @param input 完整的新配置。 @returns 保存与应用结果。 */
   async update(input: DesktopToolsConfig): Promise<DesktopToolsUpdateResult> {
     const config = parseDesktopToolsConfig(input)
@@ -192,7 +206,7 @@ export class DesktopToolsController {
       try {
         const release = await runtime.activate(this.descriptor(id))
         this.releases.set(id, release)
-        this.statuses.set(id, { phase: 'active' })
+        this.statuses.set(id, { phase: id === 'selection' && !this.config.selection.enabled ? 'disabled' : 'active' })
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error)
         this.statuses.set(id, { phase: 'error', error: message })
@@ -244,7 +258,8 @@ export class DesktopToolsController {
   private enabledFeatures(): DesktopFeatureId[] {
     return FEATURE_ORDER.filter(id => {
       if (id === 'capture') return this.config.screenshot.enabled || this.config.recording.enabled
-      if (id === 'selection') return this.config.selection.enabled
+      // 关闭取词监听后，悬浮球仍需复用公众号窗口和划词模型设置服务。
+      if (id === 'selection') return this.config.selection.enabled || this.config.floatingBall.enabled
       return this.config.floatingBall.enabled
     })
   }

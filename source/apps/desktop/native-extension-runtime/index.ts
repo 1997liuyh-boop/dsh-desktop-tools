@@ -11,6 +11,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import { DesktopToolsController, DesktopToolsService } from './desktop-tools-service.ts'
 import { createNativeHostBridge } from './host.ts'
 import { resolveHelperExecutable } from './helper-executable.ts'
+import type { DesktopFeatureId } from '../src/desktop-tools-types.ts'
 
 interface Descriptor {
   readonly id: string
@@ -39,7 +40,8 @@ export class NativeRuntime {
   private disposing: Promise<void> | undefined
 
   /** @param ctx 官方服务与当前配置目录。 @param config 进程等待时限与可执行文件覆盖。 */
-  constructor(private readonly ctx: Context, private readonly config: RuntimeConfig, private readonly onFailure?: (error: Error) => void) {
+  constructor(private readonly ctx: Context, private readonly config: RuntimeConfig, private readonly onFailure?: (error: Error) => void,
+    private readonly onDisableFeature?: (feature: DesktopFeatureId) => void) {
     this.bridge = createNativeHostBridge(ctx, message => this.send(message))
   }
 
@@ -140,6 +142,11 @@ export class NativeRuntime {
     child.on('message', (message: unknown) => {
       if (this.bridge.handle(message)) return
       if (typeof message !== 'object' || message === null || !('type' in message)) return
+      if (message.type === 'desktop-tools-disable-feature' && 'feature' in message
+        && (message.feature === 'selection' || message.feature === 'floatingBall' || message.feature === 'capture')) {
+        this.onDisableFeature?.(message.feature)
+        return
+      }
       if (message.type === 'desktop-tools-command-result' && 'requestId' in message && typeof message.requestId === 'string') {
         const pending = this.waiting.get(message.requestId)
         if (!pending) return
@@ -253,7 +260,11 @@ export function apply(ctx: Context, config: RuntimeConfig): void {
     ctx,
     profileDir: ctx.profileContext.dir,
     root,
-    createRuntime: onFailure => new NativeRuntime(ctx, config, onFailure),
+    createRuntime: onFailure => new NativeRuntime(ctx, config, onFailure, feature => {
+      void controller.disableFeature(feature).catch((error: unknown) => {
+        ctx.logger.error('桌面工具停用失败: %s', error instanceof Error ? error.message : String(error))
+      })
+    }),
   })
   new DesktopToolsService(ctx, controller)
   ctx.effect(() => {

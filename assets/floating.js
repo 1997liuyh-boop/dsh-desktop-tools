@@ -583,7 +583,7 @@ async function main() {
   }
 
   function scheduleCollapse() {
-    if (textEditing() || pinned || asking() || gatingTcc() || dragging || hasSelectionChip()) return
+    if (textEditing() || pinned || asking() || gatingTcc() || pointer !== undefined || dragging || collapsing || hasSelectionChip()) return
     if (collapseTimer !== undefined) clearTimeout(collapseTimer)
     collapseTimer = setTimeout(() => {
       collapseTimer = undefined
@@ -1401,7 +1401,7 @@ async function main() {
 
   document.body.addEventListener('pointerenter', () => {
     dockPointerInside = true
-    if (dragging || collapsing) return
+    if (pointer !== undefined || dragging || collapsing) return
     if (docked !== undefined) {
       if (dockHoverArmed) void unsnapDocked()
       return
@@ -1456,15 +1456,17 @@ async function main() {
 
   ball.addEventListener('pointerdown', event => {
     if (!isPrimaryButton(event)) return
+    event.preventDefault()
+    cancelCollapse()
     dragging = false
     collapsing = false
     skipClick = false
     lastOrigin = undefined
-    pointer = { ...ballGrabOffset(event), startX: event.screenX, startY: event.screenY }
+    pointer = { ...ballGrabOffset(event), id: event.pointerId, startX: event.screenX, startY: event.screenY }
     ball.setPointerCapture(event.pointerId)
   })
   ball.addEventListener('pointermove', event => {
-    if (pointer === undefined) return
+    if (pointer === undefined || pointer.id !== event.pointerId) return
     if (!primaryButtonHeld(event)) {
       void finishPointer(event)
       return
@@ -1473,36 +1475,36 @@ async function main() {
     if (!dragging) {
       if (Math.hypot(event.screenX - pointer.startX, event.screenY - pointer.startY) <= 4) return
       dragging = true
-      if (running || asking() || gatingTcc()) {
-        void moveBall(lastOrigin.x, lastOrigin.y)
-        return
-      }
-      collapsing = true
+      document.body.classList.add('dragging')
       pinned = false
       document.body.classList.remove('pinned')
-      void setExpanded(false, true).then(() => {
-        collapsing = false
-        if (dragging && lastOrigin !== undefined) void moveBall(lastOrigin.x, lastOrigin.y)
-      })
-      return
+      // 按住期间只移动窗口，松开后再收起，避免缩放窗口中断鼠标捕获。
     }
-    if (!collapsing) void moveBall(lastOrigin.x, lastOrigin.y)
+    void moveBall(lastOrigin.x, lastOrigin.y)
   })
   async function finishPointer(event) {
+    if (pointer === undefined || pointer.id !== event.pointerId) return false
+    document.body.classList.remove('dragging')
     if (dragging) {
       skipClick = true
       dragging = false
-      collapsing = false
-      const origin = pointer === undefined
-        ? lastOrigin
-        : { x: event.screenX - pointer.dx, y: event.screenY - pointer.dy }
+      collapsing = true
+      // 取消和丢失捕获事件的坐标可能为零，只提交最后一次真实移动的位置。
+      const origin = event.type === 'pointerup' || event.type === 'pointermove'
+        ? { x: event.screenX - pointer.dx, y: event.screenY - pointer.dy }
+        : lastOrigin
       pointer = undefined
       lastOrigin = undefined
       const skipDock = skipDockCommit
       skipDockCommit = false
-      if (!skipDock) {
-        if (origin !== undefined) await moveBall(origin.x, origin.y)
-        await clampBall()
+      try {
+        if (!skipDock) {
+          if (!(running || asking() || gatingTcc())) await setExpanded(false, true)
+          if (origin !== undefined) await moveBall(origin.x, origin.y)
+          await clampBall()
+        }
+      } finally {
+        collapsing = false
       }
       return true
     }
@@ -1511,16 +1513,16 @@ async function main() {
     return false
   }
   ball.addEventListener('pointerup', async event => {
-    if (!isPrimaryButton(event)) {
-      void finishPointer(event)
-      return
-    }
+    if (!isPrimaryButton(event) || pointer?.id !== event.pointerId) return
     const dragged = await finishPointer(event)
     if (dragged || skipClick) {
       skipClick = false
       return
     }
     await toggleByClick()
+  })
+  ball.addEventListener('click', event => {
+    if (event.detail === 0) void toggleByClick()
   })
   /** 点击即展开并钉住聊天框；已钉住时再点一次收起。双击的第二下不会把刚打开的聊天框收回。 */
   async function toggleByClick() {
@@ -1553,15 +1555,17 @@ async function main() {
 
   dockTab.addEventListener('pointerdown', event => {
     if (!isPrimaryButton(event)) return
+    event.preventDefault()
+    cancelCollapse()
     dragging = false
     collapsing = false
     skipClick = true
     lastOrigin = undefined
-    pointer = { dx: 0, dy: 0, startX: event.screenX, startY: event.screenY }
+    pointer = { dx: 0, dy: 0, id: event.pointerId, startX: event.screenX, startY: event.screenY }
     dockTab.setPointerCapture(event.pointerId)
   })
   dockTab.addEventListener('pointermove', event => {
-    if (pointer === undefined || docked === undefined) return
+    if (pointer === undefined || pointer.id !== event.pointerId || docked === undefined) return
     if (!primaryButtonHeld(event)) {
       void finishPointer(event)
       return
@@ -1575,7 +1579,7 @@ async function main() {
     void unsnapDocked()
   })
   dockTab.addEventListener('pointerup', async event => {
-    if (!isPrimaryButton(event)) { void finishPointer(event); return }
+    if (!isPrimaryButton(event) || pointer?.id !== event.pointerId) return
     const dragged = await finishPointer(event)
     skipClick = false
     if (dragged) return

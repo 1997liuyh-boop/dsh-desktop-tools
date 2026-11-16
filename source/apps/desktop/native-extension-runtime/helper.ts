@@ -37,6 +37,7 @@ async function main(): Promise<void> {
     host: () => undefined,
     connection: () => undefined,
     openMain: () => { void shell.openExternal('dsh://open').catch(error => { console.error('Open DSH failed:', error) }) },
+    disableFeature: feature => { send({ type: 'desktop-tools-disable-feature', feature }) },
     assertProductSender: (event: IpcMainInvokeEvent) => {
       features.assertSender(event)
       const window = BrowserWindow.fromWebContents(event.sender)

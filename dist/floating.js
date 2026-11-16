@@ -1,5 +1,5 @@
 import { n as SCHEME, t as DESKTOP_IPC } from "./ipc-DldzT79T.js";
-import { _ as raiseOverlayAboveObservationFrame, a as applyFloatingOverlayGuard, c as moveFloatingBall, d as resetFloatingOverlayGuard, f as setFloatingExpanded, g as hideObservationFrame, h as createObservationFrameWindow, i as writeOrbAgentModels, l as overlayWindowExcludeIds, o as clampFloatingWindow, p as unsnapDockedBall, r as readOrbAgentModels, s as createFloatingWindow, t as isOrbAgentModelSelection, v as showObservationFrame } from "./orb-agent-models--nZzToFZ.js";
+import { _ as raiseOverlayAboveObservationFrame, a as applyFloatingOverlayGuard, c as moveFloatingBall, d as resetFloatingOverlayGuard, f as setFloatingExpanded, g as hideObservationFrame, h as createObservationFrameWindow, i as writeOrbAgentModels, l as overlayWindowExcludeIds, o as clampFloatingWindow, p as unsnapDockedBall, r as readOrbAgentModels, s as createFloatingWindow, t as isOrbAgentModelSelection, v as showObservationFrame } from "./orb-agent-models-DjBEwJ_m.js";
 import { n as readDesktopToolsConfig, r as writeDesktopToolsConfig } from "./desktop-tools-config-CoArygqo.js";
 import { a as installOrbAvatarFromPath, c as orbSettingsSupported, d as serveOrbAvatar, o as orbAvatarCacheToken, r as assertOrbSettingsWritable, s as orbAvatarUrl, t as DEFAULT_ORB_AVATAR_FILE, u as restoreOrbAvatar } from "./orb-avatar-DgC5zfjx.js";
 import { createRequire } from "node:module";
@@ -290,15 +290,34 @@ async function activate(context) {
 			millifractionApplying = void 0;
 		}
 	}
+	const captureEnabled = () => {
+		const config = readDesktopToolsConfig(paths.profile);
+		return context.service("capture") !== void 0 && (config.screenshot.enabled || config.recording.enabled);
+	};
 	const floatingShell = context.own(createFloatingWindow(shellPreload, messages, () => {
 		context.showMain();
-	}, () => {
-		app.quit();
 	}, {
-		enabled: () => context.service("selection")?.enabled() ?? false,
-		toggle: () => {
-			context.service("selection")?.toggle();
-		}
+		capture: () => {
+			const mode = readDesktopToolsConfig(paths.profile).screenshot.enabled ? "image" : "video";
+			capture.open(mode).catch((error) => {
+				console.error("截图录屏启动失败", error);
+			});
+		},
+		wechat: () => {
+			context.service("wechat")?.open();
+		},
+		disableSelection: () => {
+			environment.disableFeature?.("selection");
+		},
+		disableFloating: () => {
+			environment.disableFeature?.("floatingBall");
+		},
+		disableCapture: () => {
+			environment.disableFeature?.("capture");
+		},
+		selectionEnabled: () => context.service("selection")?.enabled() ?? false,
+		captureEnabled,
+		wechatEnabled: () => context.service("wechat") !== void 0
 	}, {
 		backgroundSupported: !environment.standalone,
 		loadCatalog: loadFloatingModelCatalog,
@@ -316,10 +335,6 @@ async function activate(context) {
 			const current = readMillifractionCoordinates(paths.profile).enabled;
 			confirmMillifractionEnabled(!current, floatingShell);
 		}
-	}, () => {
-		Promise.resolve(capture.open()).catch((error) => {
-			console.error(error);
-		});
 	}));
 	const floatingWindow = floatingShell;
 	floatingWindow.once("ready-to-show", () => {

@@ -7,6 +7,7 @@ import type { DesktopHostProcess, DesktopOrbHostHandlers } from './host-process.
 import type { resolveDesktopLocale } from './locale.ts'
 import type { FloatingModelCatalog } from './floating-agent-menu.ts'
 import type { ResolvedDesktopExtension } from './desktop-extensions.ts'
+import type { DesktopFeatureId } from './desktop-tools-types.ts'
 
 /** 扩展通过声明合并公开可选服务，服务仅在提供者挂载期间存在。 */
 export interface DesktopFeatureServices {}
@@ -24,6 +25,8 @@ export interface DesktopFeatureEnvironment {
   readonly transport?: { request(path: string, body: string, signal?: AbortSignal): Promise<Response> }
   readonly standalone?: boolean
   openMain?(): void
+  /** 请求 Host 保存配置并停用对应功能。 */
+  disableFeature?(feature: DesktopFeatureId): void
   mainWindow(): BrowserWindow | undefined
   locale(): ReturnType<typeof resolveDesktopLocale>
   backendState(): DesktopBackendState

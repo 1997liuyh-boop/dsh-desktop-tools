@@ -3,6 +3,9 @@
 @source "./floating.html";
 @source "./floating.js";
 
+#ball, #dock-tab { @apply touch-none select-none; }
+body.dragging #ball { @apply cursor-grabbing; }
+
 #ball-still { @apply pointer-events-none absolute inset-0 size-full rounded-full object-cover; }
 #ball-still[hidden] { @apply hidden; }
 #ball.avatar-still #ball-gif { @apply invisible; }

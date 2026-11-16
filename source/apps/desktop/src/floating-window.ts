@@ -1,151 +1,13 @@
 
 
-import { BrowserWindow, Menu, type MenuItemConstructorOptions, screen, systemPreferences } from 'electron'
+import { BrowserWindow, Menu, screen, systemPreferences } from 'electron'
 import type { DesktopMessages } from './locale.ts'
-import {
-  floatingAgentModelItems,
-  floatingSelectionModelItems,
-  type FloatingModelCatalog,
-} from './floating-agent-menu.ts'
-import type { OrbAgentModelSelection } from './orb-agent-models.ts'
+import { floatingContextMenuTemplate, type FloatingAgentMenuSource, type FloatingContextEditState,
+  type FloatingMenuActions } from './floating-context-menu.ts'
 import {
   FLOATING_OVERLAY_ALWAYS_ON_TOP_RELATIVE,
   OVERLAY_ALWAYS_ON_TOP_LEVEL,
 } from './observation-frame-window.ts'
-
-
-export interface FloatingContextEditState {
-  readonly isEditable: boolean
-  readonly editFlags: {
-    readonly canCut: boolean
-    readonly canCopy: boolean
-    readonly canPaste: boolean
-  }
-}
-
-
-export interface FloatingAgentMenuState {
-  readonly backgroundSupported?: boolean
-  readonly catalog: FloatingModelCatalog | undefined
-  readonly overlay: OrbAgentModelSelection
-  readonly background: OrbAgentModelSelection
-  readonly onSelectOverlay: (selection: OrbAgentModelSelection) => void
-  readonly onSelectBackground: (selection: OrbAgentModelSelection) => void
-  /** 划词翻译与解读固定使用的模型；未固定时为 undefined。 */
-  readonly selection: OrbAgentModelSelection | undefined
-  readonly onSelectSelection: (selection: OrbAgentModelSelection | undefined) => void
-}
-
-
-export interface FloatingAgentMenuSource {
-  readonly backgroundSupported?: boolean
-  readonly loadCatalog: () => Promise<FloatingModelCatalog | undefined>
-  readonly overlay: () => OrbAgentModelSelection
-  readonly background: () => OrbAgentModelSelection
-  readonly onSelectOverlay: (selection: OrbAgentModelSelection) => void
-  readonly onSelectBackground: (selection: OrbAgentModelSelection) => void
-  readonly selection: () => OrbAgentModelSelection | undefined
-  readonly onSelectSelection: (selection: OrbAgentModelSelection | undefined) => void
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-export function floatingContextMenuTemplate(
-  params: FloatingContextEditState,
-  messages: Pick<
-    DesktopMessages,
-    | 'floatingOpenMain'
-    | 'floatingAgentSettings'
-    | 'floatingBackgroundAgentSettings'
-    | 'floatingNoModels'
-    | 'floatingEffortDefault'
-    | 'floatingSelectionModelSettings'
-    | 'selectionModelFollow'
-    | 'floatingQuit'
-    | 'selectionToolbarEnable'
-    | 'selectionToolbarDisable'
-    | 'millifractionEnable'
-    | 'millifractionDisable'
-  >,
-  onOpenMain: () => void,
-  onQuit: () => void,
-  selection?: { readonly enabled: boolean; readonly onToggle: () => void },
-  agents?: FloatingAgentMenuState,
-  millifraction?: { readonly enabled: boolean; readonly onToggle: () => void },
-): MenuItemConstructorOptions[] {
-  const labels = { empty: messages.floatingNoModels, defaultEffort: messages.floatingEffortDefault }
-  const actions: MenuItemConstructorOptions[] = [
-    { label: messages.floatingOpenMain, click: onOpenMain },
-    { type: 'separator' },
-    ...(agents === undefined ? [] : [
-      {
-        label: messages.floatingAgentSettings,
-        submenu: floatingAgentModelItems(
-          agents.catalog,
-          agents.overlay,
-          agents.onSelectOverlay,
-          labels,
-        ),
-      },
-      ...(agents.backgroundSupported === false ? [] : [{
-        label: messages.floatingBackgroundAgentSettings,
-        submenu: floatingAgentModelItems(
-          agents.catalog,
-          agents.background,
-          agents.onSelectBackground,
-          labels,
-        ),
-      }]),
-      {
-        label: messages.floatingSelectionModelSettings,
-        submenu: floatingSelectionModelItems(
-          agents.catalog,
-          agents.selection,
-          agents.onSelectSelection,
-          { ...labels, follow: messages.selectionModelFollow },
-        ),
-      },
-      { type: 'separator' as const },
-    ]),
-    { label: messages.floatingQuit, click: onQuit },
-  ]
-  if (selection !== undefined || millifraction !== undefined) {
-    const extras: MenuItemConstructorOptions[] = []
-    if (selection !== undefined) {
-      extras.push({
-        label: selection.enabled ? messages.selectionToolbarDisable : messages.selectionToolbarEnable,
-        click: selection.onToggle,
-      })
-    }
-    if (millifraction !== undefined) {
-      extras.push({
-        label: millifraction.enabled ? messages.millifractionDisable : messages.millifractionEnable,
-        click: millifraction.onToggle,
-      })
-    }
-    extras.push({ type: 'separator' })
-    const quitIndex = actions.findIndex(item => item.label === messages.floatingQuit)
-    actions.splice(quitIndex, 0, ...extras)
-  }
-  if (!params.isEditable) return actions
-  return [
-    { role: 'cut', enabled: params.editFlags.canCut },
-    { role: 'copy', enabled: params.editFlags.canCopy },
-    { role: 'paste', enabled: params.editFlags.canPaste },
-    { type: 'separator' },
-    ...actions,
-  ]
-}
 
 
 export const FLOATING_BALL_SIZE = 72
@@ -651,11 +513,9 @@ export function createFloatingWindow(
   preload: string,
   messages: DesktopMessages,
   onOpenMain: () => void,
-  onQuit: () => void,
-  selection?: { readonly enabled: () => boolean; readonly toggle: () => void },
+  actions: FloatingMenuActions,
   agents?: FloatingAgentMenuSource,
   millifraction?: { readonly enabled: () => boolean; readonly toggle: () => void },
-  capture?: () => void,
 ): BrowserWindow {
   const bounds = collapsedWindowBounds(defaultFloatingBallOrigin(screen.getPrimaryDisplay().workArea))
   const window = new BrowserWindow({
@@ -695,11 +555,9 @@ export function createFloatingWindow(
       params,
       messages,
       onOpenMain,
-      onQuit,
-      selection,
+      actions,
       agents,
       millifraction,
-      capture,
     )
   })
   return window
@@ -710,11 +568,9 @@ async function popupFloatingContextMenu(
   params: FloatingContextEditState,
   messages: DesktopMessages,
   onOpenMain: () => void,
-  onQuit: () => void,
-  selection: { readonly enabled: () => boolean; readonly toggle: () => void } | undefined,
+  actions: FloatingMenuActions,
   agents: FloatingAgentMenuSource | undefined,
   millifraction: { readonly enabled: () => boolean; readonly toggle: () => void } | undefined,
-  capture: (() => void) | undefined,
 ): Promise<void> {
   const catalog = agents === undefined ? undefined : await agents.loadCatalog().catch(() => undefined)
   if (window.isDestroyed()) return
@@ -722,8 +578,7 @@ async function popupFloatingContextMenu(
     params,
     messages,
     onOpenMain,
-    onQuit,
-    selection === undefined ? undefined : { enabled: selection.enabled(), onToggle: selection.toggle },
+    actions,
     agents === undefined ? undefined : {
       catalog,
       overlay: agents.overlay(),
@@ -738,7 +593,6 @@ async function popupFloatingContextMenu(
       ? undefined
       : { enabled: millifraction.enabled(), onToggle: millifraction.toggle },
   )
-  if (capture) template.unshift({ label: messages.captureTitle, click: capture }, { type: 'separator' })
   Menu.buildFromTemplate(template).popup({ window })
 }
 

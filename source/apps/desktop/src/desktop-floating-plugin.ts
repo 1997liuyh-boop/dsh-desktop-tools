@@ -32,6 +32,7 @@ import {
 } from './orb-avatar.ts'
 import { applyMillifractionCoordinates } from './millifraction-coordinates-apply.ts'
 import { orbCoordinateModeFor, readMillifractionCoordinates, writeMillifractionCoordinates } from './millifraction-coordinates.ts'
+import { readDesktopToolsConfig } from './desktop-tools-config.ts'
 import { isTccRight, TccController, type TccRight, type TccStatus } from './tcc.ts'
 import {
   createObservationFrameWindow,
@@ -196,11 +197,24 @@ export async function activate(context: DesktopFeatureContext): Promise<void> {
     }
   }
 
+  const captureEnabled = (): boolean => {
+    const config = readDesktopToolsConfig(paths.profile)
+    return context.service('capture') !== undefined && (config.screenshot.enabled || config.recording.enabled)
+  }
   const floatingShell = context.own(createFloatingWindow(shellPreload, messages, () => {
     context.showMain()
-  }, () => { app.quit() }, {
-    enabled: () => context.service('selection')?.enabled() ?? false,
-    toggle: () => { context.service('selection')?.toggle() },
+  }, {
+    capture: () => {
+      const mode = readDesktopToolsConfig(paths.profile).screenshot.enabled ? 'image' : 'video'
+      void capture.open(mode).catch((error: unknown) => { console.error('截图录屏启动失败', error) })
+    },
+    wechat: () => { context.service('wechat')?.open() },
+    disableSelection: () => { environment.disableFeature?.('selection') },
+    disableFloating: () => { environment.disableFeature?.('floatingBall') },
+    disableCapture: () => { environment.disableFeature?.('capture') },
+    selectionEnabled: () => context.service('selection')?.enabled() ?? false,
+    captureEnabled,
+    wechatEnabled: () => context.service('wechat') !== undefined,
   }, {
     backgroundSupported: !environment.standalone,
     loadCatalog: loadFloatingModelCatalog,
@@ -216,7 +230,7 @@ export async function activate(context: DesktopFeatureContext): Promise<void> {
       const current = readMillifractionCoordinates(paths.profile).enabled
       void confirmMillifractionEnabled(!current, floatingShell)
     },
-  }, () => { void Promise.resolve(capture.open()).catch((error: unknown) => { console.error(error) }) }))
+  }))
   const floatingWindow = floatingShell
   floatingWindow.once('ready-to-show', () => { floatingWindow.showInactive() })
   floatingWindow.on('focus', () => { publishTcc() })

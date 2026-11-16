@@ -1,6 +1,6 @@
 import { n as SCHEME, t as DESKTOP_IPC } from "./ipc-DldzT79T.js";
 import { a as composeSelectionTranslatePrompt, c as clipboardTypes, n as selectionRecord, o as isSelectionLanguage, s as selectionSearchUrl, t as SelectionSessionTask, u as loadKoffiPlatform } from "./selection-session-B1IPOlEl.js";
-import { m as OVERLAY_ALWAYS_ON_TOP_LEVEL, n as parseOrbAgentModelSelection, t as isOrbAgentModelSelection, u as presentOverlayWindow } from "./orb-agent-models--nZzToFZ.js";
+import { m as OVERLAY_ALWAYS_ON_TOP_LEVEL, n as parseOrbAgentModelSelection, t as isOrbAgentModelSelection, u as presentOverlayWindow } from "./orb-agent-models-DjBEwJ_m.js";
 import { n as readDesktopToolsConfig, r as writeDesktopToolsConfig } from "./desktop-tools-config-CoArygqo.js";
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
@@ -2170,6 +2170,9 @@ async function activate(context) {
 	};
 	context.effect(selectionAssistant.register(ipc));
 	context.provide("selection", selectionController);
+	context.provide("wechat", { open: () => {
+		selectionAssistant.open("wechat", "", selectionController.language());
+	} });
 	selectionController.setToolbarWindow(toolbar);
 	toolbar.webContents.once("did-finish-load", () => {
 		selectionController.publishState();
