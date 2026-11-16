@@ -83,3 +83,36 @@ test('全局快捷键要求修饰键，空字符串表示不注册', () => {
   assert.equal(isDesktopAccelerator('Shift+Shift+A'), false)
   assert.equal(isDesktopAccelerator('Hyper+A'), false)
 })
+
+test('旧配置缺少自定义动作与按钮列表时使用默认值', () => {
+  const config = defaultDesktopToolsConfig('win32')
+  const { customActions: _actions, toolbarItems: _items, ...legacySelection } = config.selection
+  const { pinsShortcut: _pins, ...legacyScreenshot } = config.screenshot
+  const parsed = parseDesktopToolsConfig({ ...config, selection: legacySelection, screenshot: legacyScreenshot })
+  assert.deepEqual(parsed.selection.customActions, [])
+  assert.deepEqual(parsed.selection.toolbarItems, ['search', 'translate', 'note', 'wechat', 'explain', 'send-to-agent'])
+  assert.equal(parsed.screenshot.pinsShortcut, '')
+})
+
+test('按钮列表去重并丢弃未知按钮和已删除的自定义动作', () => {
+  const config = defaultDesktopToolsConfig('win32')
+  const parsed = parseDesktopToolsConfig({ ...config, selection: {
+    ...config.selection,
+    customActions: [{ id: 'polish', name: ' 润色 ', prompt: ' 润色 {text} ' }],
+    toolbarItems: ['custom:polish', 'translate', 'translate', 'custom:gone', 'unknown', 42],
+  } })
+  assert.deepEqual(parsed.selection.customActions, [{ id: 'polish', name: '润色', prompt: '润色 {text}' }])
+  assert.deepEqual(parsed.selection.toolbarItems, ['custom:polish', 'translate'])
+})
+
+test('自定义动作的 id、名称、提示词和数量受到校验', () => {
+  const config = defaultDesktopToolsConfig('win32')
+  const withActions = (customActions: unknown): unknown => ({ ...config, selection: { ...config.selection, customActions } })
+  const action = { id: 'a', name: '名称', prompt: '提示词' }
+  assert.throws(() => parseDesktopToolsConfig(withActions([{ ...action, id: 'Bad Id' }])), /id 无效/u)
+  assert.throws(() => parseDesktopToolsConfig(withActions([action, action])), /id 无效/u)
+  assert.throws(() => parseDesktopToolsConfig(withActions([{ ...action, name: 'x'.repeat(21) }])), /名称无效/u)
+  assert.throws(() => parseDesktopToolsConfig(withActions([{ ...action, prompt: '  ' }])), /提示词无效/u)
+  assert.throws(() => parseDesktopToolsConfig(withActions(Array.from({ length: 11 }, (_, index) => ({ ...action, id: `a${String(index)}` })))), /最多 10 个/u)
+  assert.throws(() => parseDesktopToolsConfig({ ...config, screenshot: { ...config.screenshot, pinsShortcut: 'K' } }), /快捷键无效/u)
+})

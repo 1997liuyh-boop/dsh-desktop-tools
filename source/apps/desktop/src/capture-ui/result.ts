@@ -1,8 +1,8 @@
-/** 截图识别结果窗口：提取文字（可编辑）、翻译与知识图谱（Mermaid 渲染）。 */
+/** 截图识别结果窗口：提取文字（可编辑）、翻译、知识图谱（Mermaid 渲染）与对截图提问。 */
 import { byId, canvasPng, followTheme, format, h, request, type Messages } from './dom.ts'
 import { icons, type IconName } from './icons.ts'
 
-type Kind = 'ocr' | 'translate' | 'graph'
+type Kind = 'ocr' | 'translate' | 'graph' | 'ask'
 interface TaskState { phase: 'thinking' | 'streaming' | 'done' | 'error' | 'stopped'; text: string; model?: string; error?: string }
 interface ResultState {
   kind: Kind
@@ -15,6 +15,11 @@ interface ResultState {
   vision?: { state: 'ready' | 'missing' | 'disabled' | 'tool-off' | 'unknown' }
   task?: TaskState
   preview: string
+  /** 以下字段仅在对截图提问时存在。 */
+  question?: string
+  history?: { question: string; answer: string }[]
+  askText?: boolean
+  noVision?: boolean
 }
 
 declare global {
@@ -39,8 +44,12 @@ void (async () => {
   let renderedGraph = ''
   let graphHtml = ''
   let graphRevision = 0
+  /** 提问输入框的草稿；流式输出会整体重绘窗口，需要保留输入内容和焦点。 */
+  let draftQuestion = ''
+  let questionFocused = false
 
-  const titleOf = (kind: Kind): string => (kind === 'ocr' ? m.captureResultOcr : kind === 'translate' ? m.captureResultTranslate : m.captureResultGraph) ?? ''
+  const titleOf = (kind: Kind): string => (kind === 'ocr' ? m.captureResultOcr : kind === 'translate' ? m.captureResultTranslate
+    : kind === 'ask' ? m.captureResultAsk : m.captureResultGraph) ?? ''
 
   function button(icon: IconName, label: string | undefined, onClick: () => void, options: { primary?: boolean; disabled?: boolean; text?: boolean } = {}): HTMLButtonElement {
     const element = h('button', {
@@ -125,6 +134,57 @@ void (async () => {
     await act('result-save-png', { data: await canvasPng(canvas) })
   }
 
+  /** 提交问题；空问题或正在回答时忽略。 */
+  function ask(question: string): void {
+    const text = question.trim()
+    if (text === '' || askRunning()) return
+    draftQuestion = ''
+    void act('result-ask', { question: text })
+  }
+
+  function askRunning(): boolean {
+    return state.phase === 'task' && (state.task?.phase === 'thinking' || state.task?.phase === 'streaming')
+  }
+
+  function markdown(text: string): HTMLElement {
+    const content = h('div', { className: 'markdown' })
+    content.innerHTML = window.DshMarkdown?.renderMarkdown(text) ?? ''
+    return content
+  }
+
+  /** 对截图提问：预览、问答记录、当前回答与输入框。 */
+  function askBody(): HTMLElement {
+    const turns: (HTMLElement | null)[] = []
+    for (const turn of state.history ?? []) {
+      turns.push(h('p', { className: 'muted' }, `${m.captureAskYou ?? ''}：${turn.question}`), markdown(turn.answer))
+    }
+    const task = state.task
+    if (state.question) {
+      turns.push(h('p', { className: 'muted' }, `${m.captureAskYou ?? ''}：${state.question}`))
+      if (state.phase === 'task' && task && !(task.phase === 'thinking' && task.text === '')) turns.push(markdown(task.text))
+      else if (state.phase === 'task' || state.phase === 'ready') turns.push(spinner(m.captureThinking))
+      if (task?.phase === 'error') turns.push(h('p', { className: 'error' }, state.noVision ? m.captureAskNoVision ?? '' : task.error ?? m.captureFailed ?? ''))
+      if (state.noVision) turns.push(button('ocr', m.captureAskUseText, () => { void act('result-ask-text') }, { primary: true }))
+    }
+    const input = h('textarea', { className: 'editor', rows: '2', placeholder: m.captureAskPlaceholder, 'aria-label': m.captureAskPlaceholder }) as HTMLTextAreaElement
+    input.value = draftQuestion
+    input.addEventListener('input', () => { draftQuestion = input.value })
+    input.addEventListener('focus', () => { questionFocused = true })
+    input.addEventListener('blur', () => { questionFocused = false })
+    input.addEventListener('keydown', event => {
+      // Enter 发送，Shift+Enter 换行；输入法组字时不发送。
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); ask(input.value) }
+    })
+    const quick = state.question || (state.history?.length ?? 0) > 0 ? null : h('div', { className: 'chips' },
+      ...[m.captureAskQuickWhat, m.captureAskQuickSummary, m.captureAskQuickIssues].map(text => button('ask', text, () => { ask(text ?? '') })))
+    return h('div', { className: 'column' },
+      state.preview ? h('img', { className: 'preview', src: state.preview, alt: '' }) : null,
+      state.askText ? h('p', { className: 'note' }, state.long ? m.captureAskLong ?? '' : m.captureAskTextMode ?? '') : null,
+      ...turns,
+      quick,
+      h('div', { className: 'ask-row' }, input, button('ask', m.captureAskSend, () => { ask(input.value) }, { primary: true, disabled: askRunning() })))
+  }
+
   function body(): HTMLElement {
     if (state.phase === 'vision') return spinner(m.captureVisionChecking)
     if (state.phase === 'ocr') return spinner(state.frames > 1 ? `${m.captureOcrRunning ?? ''} ${format(m.captureFrames, { count: state.frames })}` : m.captureOcrRunning)
@@ -132,6 +192,7 @@ void (async () => {
       if (state.vision && state.vision.state !== 'ready') return visionPanel()
       return h('div', { className: 'vision' }, h('p', { className: 'error' }, state.error ?? m.captureFailed ?? ''), button('undo', m.captureRetry, () => { void act('result-retry') }, { primary: true }))
     }
+    if (state.kind === 'ask') return askBody()
     if (state.kind === 'ocr') {
       const area = h('textarea', { className: 'editor', spellcheck: 'false', 'aria-label': m.captureResultOcr })
       area.value = editedText ?? state.text
@@ -177,6 +238,10 @@ void (async () => {
       void act('result-run', { kind: 'graph' })
     }))
     if (running) items.push(button('stop', m.captureStop, () => { void act('result-stop') }))
+    else if (state.kind === 'ask') {
+      // 提问失败或被停止时用同一个问题重试；已完成的回答通过继续提问追问。
+      if (state.phase === 'task' && state.question && state.task?.phase !== 'done') items.push(button('undo', m.captureRetry, () => { void act('result-ask', { question: state.question }) }))
+    }
     else if (state.phase === 'task') items.push(button('undo', m.captureRetry, () => { void act('result-run', { kind: state.kind, language: language.value }) }))
     if (state.phase === 'task') items.push(button('forward', m.captureOpenDsh, () => { void act('result-open-main') }))
     return h('footer', { className: 'actions' }, ...items, h('span', { className: 'grow' }), h('span', { id: 'note', className: 'note', role: 'status' }))
@@ -192,6 +257,11 @@ void (async () => {
         button('close', m.capturePinClose, () => { void act('result-close') }, { text: false })),
       h('main', { className: 'body' }, body()),
       actions())
+    if (state.kind === 'ask' && questionFocused) {
+      const input = root.querySelector<HTMLTextAreaElement>('main textarea')
+      input?.focus()
+      input?.setSelectionRange(input.value.length, input.value.length)
+    }
   }
 
   window.dshDesktop.capture.onEvent(event => {

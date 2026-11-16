@@ -32,6 +32,61 @@ function isDesktopAccelerator(value) {
 	return parts.every((part) => ACCELERATOR_MODIFIER.test(part)) && new Set(parts).size === parts.length;
 }
 const DESKTOP_TOOLS_CONFIG_FILE = "desktop-tools.json";
+/** 划词工具栏内置按钮，顺序即旧版本固定的显示顺序。 */
+const SELECTION_BUILTIN_ITEMS = [
+	"search",
+	"translate",
+	"note",
+	"wechat",
+	"explain",
+	"send-to-agent"
+];
+/** 首次安装和旧配置使用的工具栏按钮。 */
+const DEFAULT_SELECTION_TOOLBAR_ITEMS = SELECTION_BUILTIN_ITEMS;
+/** 自定义划词动作的数量与长度上限。 */
+const SELECTION_CUSTOM_ACTION_LIMITS = {
+	count: 10,
+	name: 20,
+	prompt: 4e3
+};
+/** 工具栏中自定义动作项的前缀。 */
+const SELECTION_CUSTOM_PREFIX = "custom:";
+const CUSTOM_ACTION_ID = /^[a-z0-9-]{1,32}$/u;
+/**
+* 校验自定义划词动作列表。
+* @param value 磁盘中的未知值；缺省视为空列表。
+* @returns 已校验的动作；id 重复、超出数量或长度时抛错。
+*/
+function customActionsField(value) {
+	if (value === void 0) return [];
+	if (!Array.isArray(value) || value.length > SELECTION_CUSTOM_ACTION_LIMITS.count) throw new Error("自定义划词动作最多 10 个");
+	const seen = /* @__PURE__ */ new Set();
+	return value.map((item, index) => {
+		if (!isRecord(item) || typeof item.id !== "string" || !CUSTOM_ACTION_ID.test(item.id) || seen.has(item.id)) throw new Error(`自定义划词动作 id 无效: ${String(index)}`);
+		seen.add(item.id);
+		const name = typeof item.name === "string" ? item.name.trim() : "";
+		const prompt = typeof item.prompt === "string" ? item.prompt.trim() : "";
+		if (name === "" || name.length > SELECTION_CUSTOM_ACTION_LIMITS.name || /[\x00-\x1f]/u.test(name)) throw new Error(`自定义划词动作名称无效: ${item.id}`);
+		if (prompt === "" || prompt.length > SELECTION_CUSTOM_ACTION_LIMITS.prompt) throw new Error(`自定义划词动作提示词无效: ${item.id}`);
+		return {
+			id: item.id,
+			name,
+			prompt
+		};
+	});
+}
+/**
+* 校验工具栏按钮列表：去掉重复项，丢弃未知按钮和已删除的自定义动作。
+* @param value 磁盘中的未知值；缺省时使用全部内置按钮。
+* @param actions 已校验的自定义动作。
+* @returns 按显示顺序排列的按钮 id。
+*/
+function toolbarItemsField(value, actions) {
+	if (value === void 0) return [...DEFAULT_SELECTION_TOOLBAR_ITEMS];
+	if (!Array.isArray(value)) throw new Error("划词工具栏按钮列表无效");
+	const known = /* @__PURE__ */ new Set([...SELECTION_BUILTIN_ITEMS, ...actions.map((action) => SELECTION_CUSTOM_PREFIX + action.id)]);
+	return [...new Set(value.filter((item) => typeof item === "string" && known.has(item)))];
+}
 const DEFAULT_MODEL = {
 	provider: "deepseek-official",
 	model: "deepseek-flash",
@@ -43,7 +98,9 @@ function defaultDesktopToolsConfig(platform = process.platform) {
 		selection: {
 			enabled: true,
 			targetLanguage: "en",
-			compatibilityCopy: true
+			compatibilityCopy: true,
+			customActions: [],
+			toolbarItems: [...DEFAULT_SELECTION_TOOLBAR_ITEMS]
 		},
 		floatingBall: {
 			enabled: true,
@@ -55,7 +112,8 @@ function defaultDesktopToolsConfig(platform = process.platform) {
 		screenshot: {
 			enabled: false,
 			shortcut: DEFAULT_SCREENSHOT_SHORTCUT,
-			longShortcut: ""
+			longShortcut: "",
+			pinsShortcut: ""
 		},
 		recording: {
 			enabled: false,
@@ -118,12 +176,15 @@ function parseDesktopToolsConfig(value) {
 	if (permissionPreset !== "read-only" && permissionPreset !== "workspace-write" && permissionPreset !== "danger-full-access") throw new Error("悬浮球权限预设无效");
 	const coordinateMode = floatingBall.coordinateMode;
 	if (coordinateMode !== "millifraction" && coordinateMode !== "pixel") throw new Error("悬浮球坐标模式无效");
+	const customActions = customActionsField(selection.customActions);
 	return {
 		selection: {
 			enabled: booleanField(selection, "enabled"),
 			targetLanguage,
 			compatibilityCopy: booleanField(selection, "compatibilityCopy"),
-			...selection.model === void 0 ? {} : { model: modelField(selection.model, "selection.model") }
+			...selection.model === void 0 ? {} : { model: modelField(selection.model, "selection.model") },
+			customActions,
+			toolbarItems: toolbarItemsField(selection.toolbarItems, customActions)
 		},
 		floatingBall: {
 			enabled: booleanField(floatingBall, "enabled"),
@@ -135,7 +196,8 @@ function parseDesktopToolsConfig(value) {
 		screenshot: {
 			enabled: booleanField(screenshot, "enabled"),
 			shortcut: shortcutField(screenshot, "shortcut", DEFAULT_SCREENSHOT_SHORTCUT),
-			longShortcut: shortcutField(screenshot, "longShortcut", "")
+			longShortcut: shortcutField(screenshot, "longShortcut", ""),
+			pinsShortcut: shortcutField(screenshot, "pinsShortcut", "")
 		},
 		recording: {
 			enabled: booleanField(recording, "enabled"),
@@ -176,4 +238,4 @@ function writeDesktopToolsConfig(profileDir, config) {
 		throw error;
 	}
 }
-export { readDesktopToolsConfig as n, writeDesktopToolsConfig as r, parseDesktopToolsConfig as t };
+export { writeDesktopToolsConfig as i, parseDesktopToolsConfig as n, readDesktopToolsConfig as r, DESKTOP_TOOLS_CONFIG_FILE as t };

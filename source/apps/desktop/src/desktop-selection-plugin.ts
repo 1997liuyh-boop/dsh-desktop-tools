@@ -27,8 +27,8 @@ export async function activate(context: DesktopFeatureContext): Promise<void> {
   const selectionController = new SelectionToolbarController(environment.profile, {
     electronPid: process.pid,
     openExternal: url => shell.openExternal(url),
-    openResult: (action, text, language, anchor) => {
-      selectionAssistant.open(action, text, language, anchor)
+    openResult: (action, text, language, anchor, custom) => {
+      selectionAssistant.open(action, text, language, anchor, custom)
     },
     promptOverlay: (text) => { sendOverlay(text, false) },
     attachOverlay: (text) => { sendOverlay(text, true) },
@@ -77,8 +77,10 @@ export async function activate(context: DesktopFeatureContext): Promise<void> {
   context.handle(DESKTOP_IPC.selectionSearch, event => requireToolbar(event).search())
   context.handle(DESKTOP_IPC.selectionTranslate, (event) => { requireToolbar(event).translate() })
   context.handle(DESKTOP_IPC.selectionAction, (event, action: unknown) => {
-    if (action !== 'translate' && action !== 'explain' && action !== 'note' && action !== 'wechat') throw new Error('划词动作无效')
-    requireToolbar(event).openResult(action)
+    const builtin = action === 'translate' || action === 'explain' || action === 'note' || action === 'wechat'
+    const custom = typeof action === 'string' && /^custom:[a-z0-9-]{1,32}$/u.test(action)
+    if (!builtin && !custom) throw new Error('划词动作无效')
+    requireToolbar(event).openResult(action as 'translate' | `custom:${string}`)
   })
   context.handle(DESKTOP_IPC.selectionAttach, (event) => { requireToolbar(event).sendToAgent() })
   context.handle(DESKTOP_IPC.selectionSetLanguage, (event, language: unknown) => {
@@ -86,6 +88,7 @@ export async function activate(context: DesktopFeatureContext): Promise<void> {
     requireToolbar(event).setLanguage(language)
   })
   context.handle(DESKTOP_IPC.selectionInteract, (event) => { requireToolbar(event) })
+  context.handle(DESKTOP_IPC.selectionItems, event => requireToolbar(event).toolbarItems())
   context.handle(DESKTOP_IPC.selectionSetContentSize, (event, size: unknown) => {
     if (typeof size !== 'object' || size === null || !('width' in size) || !('height' in size)
       || typeof size.width !== 'number' || typeof size.height !== 'number' || !Number.isFinite(size.width) || !Number.isFinite(size.height)

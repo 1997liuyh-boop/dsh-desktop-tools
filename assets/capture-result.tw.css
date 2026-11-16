@@ -2,6 +2,7 @@
 @import "tailwindcss/theme";
 @import "tailwindcss/utilities";
 @source "../source/apps/desktop/src/capture-ui/result.ts";
+@source "../source/apps/desktop/src/capture-ui/pins.ts";
 
 /* 截图识别结果窗口：标题栏可拖动，正文滚动，底部操作栏。 */
 :root { font-family: ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; color-scheme: light dark; }
@@ -44,6 +45,10 @@ button, input, textarea { font: inherit; color: inherit; }
   border-radius: 8px; background: transparent; line-height: 1.6; outline: none;
 }
 .editor:focus { border-color: var(--dsw-alias-brand-primary); }
+/* 对截图提问：输入框与发送按钮同行，快捷问题换行排列。 */
+.ask-row { display: flex; gap: 8px; align-items: flex-end; margin-top: auto; }
+.ask-row .editor { min-height: 64px; max-height: 160px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .source summary { cursor: pointer; color: var(--dsw-alias-label-secondary); }
 .source pre { white-space: pre-wrap; word-break: break-word; margin: 8px 0 0; padding: 10px; border-radius: 8px; background: var(--dsw-alias-interactive-bg-hover); font-size: 12px; }
 
@@ -58,3 +63,10 @@ button, input, textarea { font: inherit; color: inherit; }
 .markdown th, .markdown td { border: .5px solid var(--dsw-alias-border-l3); padding: 4px 8px; }
 .graph { margin: 6px 0 14px; padding: 10px; overflow: auto; border-radius: 10px; border: .5px solid var(--dsw-alias-border-l3); text-align: center; }
 .graph svg { max-width: 100%; height: auto; }
+
+/* 钉图管理窗：缩略图网格，隐藏的钉图半透明。 */
+.pin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.pin-card { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: .5px solid var(--dsw-alias-border-l3); border-radius: 10px; }
+.pin-card.is-hidden .pin-thumb { opacity: .45; }
+.pin-thumb { width: 100%; height: 120px; object-fit: contain; border-radius: 6px; background: var(--dsw-alias-interactive-bg-hover); cursor: pointer; }
+.pin-actions { display: flex; align-items: center; gap: 2px; }

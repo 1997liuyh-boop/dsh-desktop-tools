@@ -215,6 +215,8 @@ export async function activate(context: DesktopFeatureContext): Promise<void> {
     selectionEnabled: () => context.service('selection')?.enabled() ?? false,
     captureEnabled,
     wechatEnabled: () => context.service('wechat') !== undefined,
+    pins: () => { context.service('capture')?.pins.manage() },
+    pinsEnabled: () => context.service('capture') !== undefined,
   }, {
     backgroundSupported: !environment.standalone,
     loadCatalog: loadFloatingModelCatalog,

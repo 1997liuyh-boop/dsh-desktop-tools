@@ -38,6 +38,7 @@ export class NativeRuntime {
   private exit: Promise<void> | undefined
   private stopping: Promise<void> | undefined
   private disposing: Promise<void> | undefined
+  private helperElectron: string | undefined
 
   /** @param ctx 官方服务与当前配置目录。 @param config 进程等待时限与可执行文件覆盖。 */
   constructor(private readonly ctx: Context, private readonly config: RuntimeConfig, private readonly onFailure?: (error: Error) => void,
@@ -53,9 +54,12 @@ export class NativeRuntime {
     return () => { released ??= this.operation('deactivate', descriptor); return released }
   }
 
+  /** @returns 辅助进程实际运行的 Electron 版本；尚未启动或未上报时为 undefined。 */
+  helperElectronVersion(): string | undefined { return this.helperElectron }
+
   /** @param command 辅助进程命令。 @param input 已校验参数。 */
-  async command(command: 'capture-open' | 'permissions-status' | 'permission-open' | 'avatar-refresh', input: {
-    readonly mode?: 'image' | 'video' | 'long'
+  async command(command: 'capture-open' | 'permissions-status' | 'permission-open' | 'avatar-refresh' | 'shortcuts-status', input: {
+    readonly mode?: 'image' | 'video' | 'long' | 'pins'
     readonly right?: 'screen' | 'accessibility'
   }): Promise<unknown> {
     await this.start()
@@ -131,7 +135,10 @@ export class NativeRuntime {
       child.once('close', exited)
       child.once('error', reject)
       const receive = (input: unknown): void => {
-        if (typeof input === 'object' && input !== null && 'type' in input && input.type === 'dsh-native-ready') resolveReady()
+        if (typeof input === 'object' && input !== null && 'type' in input && input.type === 'dsh-native-ready') {
+          if ('electron' in input && typeof input.electron === 'string') this.helperElectron = input.electron
+          resolveReady()
+        }
       }
       child.on('message', receive)
       clearReady = (): void => {
@@ -260,6 +267,7 @@ export function apply(ctx: Context, config: RuntimeConfig): void {
     ctx,
     profileDir: ctx.profileContext.dir,
     root,
+    electronExecutable: config.electronExecutable,
     createRuntime: onFailure => new NativeRuntime(ctx, config, onFailure, feature => {
       void controller.disableFeature(feature).catch((error: unknown) => {
         ctx.logger.error('桌面工具停用失败: %s', error instanceof Error ? error.message : String(error))

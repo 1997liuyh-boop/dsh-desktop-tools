@@ -1,5 +1,6 @@
 import { i as installOrbAvatarFromBytes, l as readCustomOrbAvatarDataUrl, u as restoreOrbAvatar } from "./orb-avatar-DgC5zfjx.js";
-import { n as readDesktopToolsConfig, r as writeDesktopToolsConfig, t as parseDesktopToolsConfig } from "./desktop-tools-config-CoArygqo.js";
+import { i as writeDesktopToolsConfig, n as parseDesktopToolsConfig, r as readDesktopToolsConfig, t as DESKTOP_TOOLS_CONFIG_FILE } from "./desktop-tools-config-A_wdY9X1.js";
+import { n as locateKoffiPlatform } from "./koffi-platform-C2YCpT9s.js";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
@@ -8,8 +9,288 @@ import z from "@deepseek-ai/schemastery";
 import { existsSync, readFileSync } from "node:fs";
 import { Remote, TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
 import { mkdir, rm, writeFile } from "node:fs/promises";
-import { SessionId } from "@deepseek-ai/dsh-session/types";
 import { homedir } from "node:os";
+import { SessionId } from "@deepseek-ai/dsh-session/types";
+// source/apps/desktop/src/desktop-diagnostics.ts
+const FEATURES = [
+	["selection", "feature-selection"],
+	["floatingBall", "feature-floatingBall"],
+	["capture", "feature-capture"]
+];
+/** @param config 当前配置。 @param id 功能。 @returns 配置中是否要求启用该功能。 */
+function featureWanted(config, id) {
+	if (id === "capture") return config.screenshot.enabled || config.recording.enabled;
+	return id === "selection" ? config.selection.enabled : config.floatingBall.enabled;
+}
+/** @param version Electron 版本号。 @returns 主版本号。 */
+function major(version) {
+	return version.split(".")[0] ?? version;
+}
+function electronItem(electron) {
+	if (electron.kind === "missing") return {
+		id: "electron",
+		status: "error",
+		message: "diagElectronMissing",
+		values: { tried: electron.candidates.join("\n") }
+	};
+	if (!electron.exists) return {
+		id: "electron",
+		status: "error",
+		message: "diagElectronNotFound",
+		values: { path: electron.path }
+	};
+	return {
+		id: "electron",
+		status: "ok",
+		message: electron.kind === "dev" ? "diagElectronDev" : electron.kind === "configured" ? "diagElectronConfigured" : "diagElectronFound",
+		values: { path: electron.path }
+	};
+}
+function versionItem(host, helper) {
+	if (host === void 0 || helper === void 0) return {
+		id: "electron-version",
+		status: "skip",
+		message: "diagElectronVersionUnknown"
+	};
+	const values = {
+		host,
+		helper
+	};
+	if (major(host) !== major(helper)) return {
+		id: "electron-version",
+		status: "warn",
+		message: "diagElectronVersionMismatch",
+		values
+	};
+	return {
+		id: "electron-version",
+		status: "ok",
+		message: "diagElectronVersionMatch",
+		values
+	};
+}
+function koffiItem(koffi, platform) {
+	if (koffi.packageName === void 0) return {
+		id: "native-module",
+		status: "skip",
+		message: "diagNativeUnsupported",
+		values: { platform }
+	};
+	if (koffi.path === void 0) return {
+		id: "native-module",
+		status: "error",
+		message: "diagNativeMissing",
+		values: {
+			name: koffi.packageName,
+			error: koffi.error ?? ""
+		}
+	};
+	return {
+		id: "native-module",
+		status: "ok",
+		message: "diagNativeFound",
+		values: { name: koffi.packageName }
+	};
+}
+function runtimeItem(input) {
+	const { snapshot } = input;
+	const wanted = FEATURES.some(([id]) => featureWanted(snapshot.config, id));
+	const firstError = input.runtimeError ?? FEATURES.map(([id]) => snapshot.features[id].error).find((item) => item !== void 0) ?? "";
+	if (snapshot.runtime === "running") return {
+		id: "runtime",
+		status: "ok",
+		message: "diagRuntimeRunning"
+	};
+	if (snapshot.runtime === "degraded") return {
+		id: "runtime",
+		status: "error",
+		message: "diagRuntimeDegraded",
+		values: { error: firstError },
+		fix: "restart"
+	};
+	if (!wanted) return {
+		id: "runtime",
+		status: "skip",
+		message: "diagRuntimeIdle"
+	};
+	return {
+		id: "runtime",
+		status: "error",
+		message: "diagRuntimeStopped",
+		values: { error: firstError },
+		fix: "restart"
+	};
+}
+function featureItems(snapshot) {
+	return FEATURES.map(([feature, id]) => {
+		const status = snapshot.features[feature];
+		if (status.phase === "error") return {
+			id,
+			status: "error",
+			message: "diagFeatureError",
+			values: { error: status.error ?? "" },
+			fix: "restart"
+		};
+		if (status.phase === "starting") return {
+			id,
+			status: "warn",
+			message: "diagFeatureStarting"
+		};
+		if (status.phase === "active") return {
+			id,
+			status: "ok",
+			message: "diagFeatureActive"
+		};
+		return featureWanted(snapshot.config, feature) ? {
+			id,
+			status: "error",
+			message: "diagFeatureNotRunning",
+			fix: "restart"
+		} : {
+			id,
+			status: "skip",
+			message: "diagFeatureDisabled"
+		};
+	});
+}
+function shortcutItem(input) {
+	const shortcuts = input.shortcuts;
+	if (shortcuts === void 0) return {
+		id: "shortcuts",
+		status: "skip",
+		message: "diagShortcutsInactive"
+	};
+	if (shortcuts.status === void 0) return {
+		id: "shortcuts",
+		status: "warn",
+		message: "diagShortcutsUnknown",
+		values: { error: shortcuts.error ?? "" }
+	};
+	const { registered, failed } = shortcuts.status;
+	if (failed.length === 0) return registered.length === 0 ? {
+		id: "shortcuts",
+		status: "ok",
+		message: "diagShortcutsNone"
+	} : {
+		id: "shortcuts",
+		status: "ok",
+		message: "diagShortcutsOk",
+		values: { list: registered.join(", ") }
+	};
+	const occupied = failed.filter((item) => item.reason === "occupied").map((item) => item.accelerator);
+	const invalid = failed.filter((item) => item.reason === "invalid").map((item) => item.accelerator);
+	return {
+		id: "shortcuts",
+		status: "warn",
+		message: occupied.length > 0 && invalid.length > 0 ? "diagShortcutsFailed" : occupied.length > 0 ? "diagShortcutsOccupied" : "diagShortcutsInvalid",
+		values: {
+			occupied: occupied.join(", "),
+			invalid: invalid.join(", ")
+		}
+	};
+}
+function visionItem(snapshot) {
+	if (!featureWanted(snapshot.config, "capture")) return {
+		id: "vision",
+		status: "skip",
+		message: "diagVisionNotNeeded"
+	};
+	const { state, version } = snapshot.vision;
+	const values = { version: version ?? "" };
+	if (state === "ready") return {
+		id: "vision",
+		status: "ok",
+		message: "diagVisionReady"
+	};
+	if (state === "missing") return {
+		id: "vision",
+		status: "warn",
+		message: "diagVisionMissing",
+		fix: "install-vision"
+	};
+	if (state === "disabled") return {
+		id: "vision",
+		status: "warn",
+		message: "diagVisionDisabled",
+		values,
+		fix: "install-vision"
+	};
+	if (state === "tool-off") return {
+		id: "vision",
+		status: "warn",
+		message: "diagVisionToolOff",
+		values
+	};
+	return {
+		id: "vision",
+		status: "skip",
+		message: "diagVisionUnknown"
+	};
+}
+function permissionItems(input) {
+	return [[
+		"screen",
+		"permission-screen",
+		"open-screen"
+	], [
+		"accessibility",
+		"permission-accessibility",
+		"open-accessibility"
+	]].map(([right, id, fix]) => {
+		if (input.platform !== "darwin") return {
+			id,
+			status: "skip",
+			message: "diagPermissionNotNeeded"
+		};
+		const granted = input.permissions?.[right];
+		if (granted === void 0) return {
+			id,
+			status: "skip",
+			message: "diagPermissionUnknown"
+		};
+		return granted ? {
+			id,
+			status: "ok",
+			message: "diagPermissionGranted"
+		} : {
+			id,
+			status: "warn",
+			message: "diagPermissionDenied",
+			fix
+		};
+	});
+}
+/**
+* 根据采集到的数据生成诊断结论。
+* @param input 配置、可执行文件、原生模块、运行状态等采集结果。
+* @returns 按检查顺序排列的诊断项。
+*/
+function buildDiagnostics(input) {
+	return [
+		input.config.error === void 0 ? {
+			id: "config",
+			status: "ok",
+			message: "diagConfigOk",
+			values: { path: input.config.path }
+		} : {
+			id: "config",
+			status: "error",
+			message: "diagConfigError",
+			values: {
+				path: input.config.path,
+				error: input.config.error
+			}
+		},
+		electronItem(input.electron),
+		versionItem(input.hostElectron, input.helperElectron),
+		koffiItem(input.koffi, input.platform),
+		runtimeItem(input),
+		...featureItems(input.snapshot),
+		shortcutItem(input),
+		visionItem(input.snapshot),
+		...permissionItems(input)
+	];
+}
 // source/apps/desktop/native-extension-runtime/capture-vision.ts
 /** Host 侧对前置插件 dsh-vision-router 的检测、一键安装与 OCR 调用。 */
 /** 前置插件的 npm 包名。 */
@@ -119,8 +400,58 @@ async function runCaptureOcr(ctx, png, long, signal) {
 		await rm(path, { force: true }).catch(() => {});
 	}
 }
+// source/apps/desktop/native-extension-runtime/helper-executable.ts
+/** 桌面工具辅助进程的可执行文件选择（独立模块，便于单测）。 */
+/**
+* 选出启动辅助进程的 Electron 可执行文件。
+* 打包安装的 DSH（如 D:\deepseek-harness\DeepSeek Harness.exe）同级 resources 下有 app.asar，
+* 这类可执行文件总是启动自带应用、忽略脚本参数，不能用来跑 helper.js；此时改用独立 Electron：
+* 依次尝试 DSH_DESKTOP_TOOLS_ELECTRON 环境变量与 $DSH_HOME/electron（dsh-pet 等插件共用的落地目录）。
+* 开发模式下 DSH 由裸 electron.exe 启动，直接复用 process.execPath。
+* @param configured 插件设置中显式指定的路径。
+* @param execPath 当前宿主进程的可执行文件。
+* @param env 环境变量。
+* @param exists 文件存在判断（测试可替换）。
+* @returns 可用的可执行文件路径。
+*/
+function resolveHelperExecutable(configured, execPath, env, exists = existsSync) {
+	if (configured) return configured;
+	if (!isPackagedHost(execPath, exists)) return execPath;
+	const candidates = helperExecutableCandidates(env);
+	const found = candidates.find((item) => exists(item));
+	if (found) return found;
+	throw new Error("当前 DSH 为打包安装，不能直接用宿主程序启动桌面工具辅助进程；请在插件设置 electronExecutable 中填写独立 Electron 的路径，或设置环境变量 DSH_DESKTOP_TOOLS_ELECTRON。已尝试：" + candidates.join("、"));
+}
+/**
+* 判断宿主是否为打包安装的 DSH（可执行文件同级 resources 下存在 app.asar）。
+* @param execPath 宿主可执行文件。
+* @param exists 文件存在判断（测试可替换）。
+* @returns 打包安装时为 true，裸 Electron 开发模式为 false。
+*/
+function isPackagedHost(execPath, exists = existsSync) {
+	return exists(join(dirname(execPath), "resources", "app.asar"));
+}
+/**
+* 打包安装时依次尝试的独立 Electron 路径。
+* @param env 环境变量。
+* @returns DSH_DESKTOP_TOOLS_ELECTRON（如有）与 $DSH_HOME/electron 下的可执行文件。
+*/
+function helperExecutableCandidates(env) {
+	const binary = process.platform === "win32" ? "electron.exe" : process.platform === "darwin" ? join("Electron.app", "Contents", "MacOS", "Electron") : "electron";
+	return [env.DSH_DESKTOP_TOOLS_ELECTRON, join(env.DSH_HOME ?? join(homedir(), ".dsh"), "electron", binary)].filter((item) => typeof item === "string" && item.length > 0);
+}
 // source/apps/desktop/native-extension-runtime/desktop-tools-service.ts
 /** Host 侧桌面工具配置、功能生命周期与 Remote 接口。 */
+/** @param value 辅助进程返回值。 @returns 是否为快捷键注册状态。 */
+function isShortcutStatus(value) {
+	if (typeof value !== "object" || value === null) return false;
+	const record = value;
+	return Array.isArray(record.registered) && Array.isArray(record.failed);
+}
+/** @param error 任意异常。 @returns 可展示的错误信息。 */
+function errorText(error) {
+	return error instanceof Error ? error.message : String(error);
+}
 const FEATURE_ORDER = [
 	"capture",
 	"selection",
@@ -191,10 +522,13 @@ var DesktopToolsController = class {
 		this.config = config;
 		try {
 			const snapshot = await this.exclusive(() => this.reconcile());
+			const applied = this.isApplied(snapshot);
+			const failed = applied ? (await this.readShortcuts())?.status?.failed ?? [] : [];
 			return {
 				saved: true,
-				applied: this.isApplied(snapshot),
-				snapshot
+				applied,
+				snapshot,
+				...failed.length === 0 ? {} : { shortcutFailures: failed }
 			};
 		} catch (error) {
 			this.options.ctx.logger.error("桌面工具已保存但应用失败: %s", error instanceof Error ? error.message : String(error));
@@ -211,6 +545,11 @@ var DesktopToolsController = class {
 	}
 	/** @returns 重新读取前置视觉插件状态后的快照。 */
 	async refreshedSnapshot() {
+		try {
+			this.config = readDesktopToolsConfig(this.options.profileDir);
+		} catch (error) {
+			this.options.ctx.logger.warn("桌面工具配置重新读取失败，沿用缓存: %s", errorText(error));
+		}
 		this.vision = await captureVisionStatus(this.options.ctx);
 		return this.snapshot();
 	}
@@ -223,9 +562,109 @@ var DesktopToolsController = class {
 			restartRequired: result.restartRequired
 		};
 	}
+	/** @returns 逐项诊断结果与运行环境摘要。 */
+	async diagnose() {
+		const snapshot = await this.refreshedSnapshot();
+		const host = this.options.host ?? {};
+		const exists = host.exists ?? existsSync;
+		const execPath = host.execPath ?? process.execPath;
+		const platform = host.platform ?? process.platform;
+		const packaged = isPackagedHost(execPath, exists);
+		let configError;
+		try {
+			readDesktopToolsConfig(this.options.profileDir);
+		} catch (error) {
+			configError = errorText(error);
+		}
+		const configured = this.options.electronExecutable;
+		let electron;
+		if (configured) electron = {
+			kind: "configured",
+			path: configured,
+			exists: exists(configured)
+		};
+		else if (!packaged) electron = {
+			kind: "dev",
+			path: execPath,
+			exists: true
+		};
+		else {
+			const candidates = helperExecutableCandidates(host.env ?? process.env);
+			const found = candidates.find((item) => exists(item));
+			electron = found === void 0 ? {
+				kind: "missing",
+				candidates
+			} : {
+				kind: "found",
+				path: found,
+				exists: true
+			};
+		}
+		const runtime = this.runtime;
+		const shortcuts = await this.readShortcuts();
+		let permissions;
+		if (platform === "darwin" && runtime !== void 0 && this.statuses.get("floatingBall")?.phase === "active") try {
+			const value = await runtime.command("permissions-status", {});
+			if (typeof value === "object" && value !== null) {
+				const record = value;
+				permissions = {
+					...typeof record.screen === "boolean" ? { screen: record.screen } : {},
+					...typeof record.accessibility === "boolean" ? { accessibility: record.accessibility } : {}
+				};
+			}
+		} catch {}
+		const hostElectron = process.versions.electron;
+		const helperElectron = runtime?.helperElectronVersion?.();
+		const items = buildDiagnostics({
+			platform,
+			config: {
+				path: join(this.options.profileDir, DESKTOP_TOOLS_CONFIG_FILE),
+				...configError === void 0 ? {} : { error: configError }
+			},
+			electron,
+			...hostElectron === void 0 ? {} : { hostElectron },
+			...helperElectron === void 0 ? {} : { helperElectron },
+			koffi: locateKoffiPlatform(),
+			snapshot,
+			...this.runtimeError === void 0 ? {} : { runtimeError: this.runtimeError },
+			...shortcuts === void 0 ? {} : { shortcuts },
+			...permissions === void 0 ? {} : { permissions }
+		});
+		return {
+			generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+			environment: {
+				plugin: this.pluginVersion(),
+				platform,
+				arch: process.arch,
+				packaged,
+				...hostElectron === void 0 ? {} : { hostElectron },
+				...helperElectron === void 0 ? {} : { helperElectron }
+			},
+			items
+		};
+	}
+	/** @returns 截图录屏运行时的快捷键注册状态或读取失败原因；未运行时为 undefined。 */
+	async readShortcuts() {
+		const runtime = this.runtime;
+		if (runtime === void 0 || this.statuses.get("capture")?.phase !== "active") return void 0;
+		try {
+			const value = await runtime.command("shortcuts-status", {});
+			return isShortcutStatus(value) ? { status: value } : { error: "辅助进程返回的快捷键状态无效" };
+		} catch (error) {
+			return { error: errorText(error) };
+		}
+	}
+	/** @returns 安装包 package.json 中的版本号；读取失败时为 unknown。 */
+	pluginVersion() {
+		try {
+			const parsed = JSON.parse(readFileSync(join(this.options.root, "package.json"), "utf8"));
+			if (typeof parsed === "object" && parsed !== null && typeof parsed.version === "string") return parsed.version;
+		} catch {}
+		return "unknown";
+	}
 	/** @param mode 截图、录屏或长截图。 */
 	async openCapture(mode) {
-		if (!(mode === "video" ? this.config.recording.enabled : this.config.screenshot.enabled)) throw new Error(mode === "video" ? "录屏功能未启用" : "截图功能未启用");
+		if (!(mode === "pins" ? this.config.screenshot.enabled || this.config.recording.enabled : mode === "video" ? this.config.recording.enabled : this.config.screenshot.enabled)) throw new Error(mode === "video" ? "录屏功能未启用" : "截图功能未启用");
 		if (this.statuses.get("capture")?.phase !== "active" || this.runtime === void 0) throw new Error("截图录屏功能尚未就绪");
 		await this.runtime.command("capture-open", { mode });
 	}
@@ -406,6 +845,7 @@ const REMOTE_METHODS = [
 	"update",
 	"restart",
 	"openCapture",
+	"diagnose",
 	"avatar",
 	"setAvatar",
 	"restoreAvatar",
@@ -466,6 +906,10 @@ var DesktopToolsService = class extends TypertRemoteService {
 	/** @returns 重新创建辅助进程后的状态。 */
 	restart() {
 		return this.controller.restart();
+	}
+	/** @returns 逐项诊断结果与运行环境摘要。 */
+	diagnose() {
+		return this.controller.diagnose();
 	}
 	/** @param mode 截图、录屏或长截图。 */
 	async openCapture(mode) {
@@ -685,29 +1129,6 @@ function createNativeHostBridge(ctx, send) {
 		}
 	};
 }
-// source/apps/desktop/native-extension-runtime/helper-executable.ts
-/** 桌面工具辅助进程的可执行文件选择（独立模块，便于单测）。 */
-/**
-* 选出启动辅助进程的 Electron 可执行文件。
-* 打包安装的 DSH（如 D:\deepseek-harness\DeepSeek Harness.exe）同级 resources 下有 app.asar，
-* 这类可执行文件总是启动自带应用、忽略脚本参数，不能用来跑 helper.js；此时改用独立 Electron：
-* 依次尝试 DSH_DESKTOP_TOOLS_ELECTRON 环境变量与 $DSH_HOME/electron（dsh-pet 等插件共用的落地目录）。
-* 开发模式下 DSH 由裸 electron.exe 启动，直接复用 process.execPath。
-* @param configured 插件设置中显式指定的路径。
-* @param execPath 当前宿主进程的可执行文件。
-* @param env 环境变量。
-* @param exists 文件存在判断（测试可替换）。
-* @returns 可用的可执行文件路径。
-*/
-function resolveHelperExecutable(configured, execPath, env, exists = existsSync) {
-	if (configured) return configured;
-	if (!exists(join(dirname(execPath), "resources", "app.asar"))) return execPath;
-	const binary = process.platform === "win32" ? "electron.exe" : process.platform === "darwin" ? join("Electron.app", "Contents", "MacOS", "Electron") : "electron";
-	const candidates = [env.DSH_DESKTOP_TOOLS_ELECTRON, join(env.DSH_HOME ?? join(homedir(), ".dsh"), "electron", binary)].filter((item) => typeof item === "string" && item.length > 0);
-	const found = candidates.find((item) => exists(item));
-	if (found) return found;
-	throw new Error("当前 DSH 为打包安装，不能直接用宿主程序启动桌面工具辅助进程；请在插件设置 electronExecutable 中填写独立 Electron 的路径，或设置环境变量 DSH_DESKTOP_TOOLS_ELECTRON。已尝试：" + candidates.join("、"));
-}
 // source/apps/desktop/native-extension-runtime/index.ts
 /** 官方 DSH 通过可注入服务管理独立原生插件，不依赖桌面扩展 API。 */
 /** 原生插件共用的 Electron 进程；每个插件独立等待激活和释放回执。 */
@@ -725,6 +1146,7 @@ var NativeRuntime = class {
 	exit;
 	stopping;
 	disposing;
+	helperElectron;
 	/** @param ctx 官方服务与当前配置目录。 @param config 进程等待时限与可执行文件覆盖。 */
 	constructor(ctx, config, onFailure, onDisableFeature) {
 		this.ctx = ctx;
@@ -742,6 +1164,10 @@ var NativeRuntime = class {
 			released ??= this.operation("deactivate", descriptor);
 			return released;
 		};
+	}
+	/** @returns 辅助进程实际运行的 Electron 版本；尚未启动或未上报时为 undefined。 */
+	helperElectronVersion() {
+		return this.helperElectron;
 	}
 	/** @param command 辅助进程命令。 @param input 已校验参数。 */
 	async command(command, input) {
@@ -854,7 +1280,10 @@ var NativeRuntime = class {
 			child.once("close", exited);
 			child.once("error", reject);
 			const receive = (input) => {
-				if (typeof input === "object" && input !== null && "type" in input && input.type === "dsh-native-ready") resolveReady();
+				if (typeof input === "object" && input !== null && "type" in input && input.type === "dsh-native-ready") {
+					if ("electron" in input && typeof input.electron === "string") this.helperElectron = input.electron;
+					resolveReady();
+				}
 			};
 			child.on("message", receive);
 			clearReady = () => {
@@ -1006,6 +1435,7 @@ function apply(ctx, config) {
 		ctx,
 		profileDir: ctx.profileContext.dir,
 		root,
+		electronExecutable: config.electronExecutable,
 		createRuntime: (onFailure) => new NativeRuntime(ctx, config, onFailure, (feature) => {
 			controller.disableFeature(feature).catch((error) => {
 				ctx.logger.error("桌面工具停用失败: %s", error instanceof Error ? error.message : String(error));

@@ -44,6 +44,10 @@ export interface FloatingMenuActions {
   readonly selectionEnabled: () => boolean
   readonly captureEnabled: () => boolean
   readonly wechatEnabled: () => boolean
+  /** 打开钉图管理窗；省略时菜单中不显示该项。 */
+  readonly pins?: () => void
+  /** 钉图管理是否可用（截图录屏功能正在运行）。 */
+  readonly pinsEnabled?: () => boolean
 }
 
 /** 按快捷工具、主窗口、设置三组生成悬浮球原生菜单。 */
@@ -75,6 +79,7 @@ export function floatingContextMenuTemplate(
   const menu: MenuItemConstructorOptions[] = [
     { label: messages.captureTitle, enabled: actions.captureEnabled(), click: actions.capture },
     { label: messages.floatingWechat, enabled: actions.wechatEnabled(), click: actions.wechat },
+    ...(actions.pins === undefined ? [] : [{ label: messages.capturePinsManage, enabled: actions.pinsEnabled?.() ?? true, click: actions.pins }]),
     { type: 'separator' },
     { label: messages.floatingOpenMain, click: onOpenMain },
     { type: 'separator' },

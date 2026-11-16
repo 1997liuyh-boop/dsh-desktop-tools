@@ -46,6 +46,15 @@ test('快捷入口与关闭操作绑定各自回调，未启用的功能禁用�
   assert.equal(disabled[1].enabled, true)
 })
 
+test('提供钉图管理时显示在快捷工具组末尾，并按截图录屏状态启用', () => {
+  let opened = 0
+  const menu = floatingContextMenuTemplate(plain, zh, noop, actions({ pins: () => { opened += 1 }, pinsEnabled: () => false }))
+  assert.deepEqual(menu.slice(0, 4).map(item => item.label ?? item.type), ['截图 / 屏幕录制', '公众号解读', '钉图管理…', 'separator'])
+  assert.equal(menu[2]?.enabled, false)
+  menu[2]?.click?.(null!, null!, null!)
+  assert.equal(opened, 1)
+})
+
 test('模型不可用时仍可选择跟随主窗口，输入框保留剪切复制粘贴', () => {
   let selected: unknown = 'unchanged'
   const model = { provider: 'test', model: 'test' }

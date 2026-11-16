@@ -78,6 +78,8 @@ const DESKTOP_IPC = {
 	selectionSetLanguage: "dsh-desktop:selection-set-language",
 	selectionInteract: "dsh-desktop:selection-interact",
 	selectionSetContentSize: "dsh-desktop:selection-set-content-size",
+	/** 划词工具栏读取按配置顺序显示的按钮。 */
+	selectionItems: "dsh-desktop:selection-items",
 	selectionState: "dsh-desktop:selection-state",
 	orbSupported: "dsh-desktop:orb-supported",
 	orbSnapshot: "dsh-desktop:orb-snapshot",

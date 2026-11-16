@@ -104,10 +104,11 @@ async function main(): Promise<void> {
           }
           const input = message.input
           let value: unknown
-          if (message.command === 'capture-open' && 'mode' in input && (input.mode === 'image' || input.mode === 'video' || input.mode === 'long')) {
+          if (message.command === 'capture-open' && 'mode' in input && (input.mode === 'image' || input.mode === 'video' || input.mode === 'long' || input.mode === 'pins')) {
             const capture = features.service('capture')
             if (capture === undefined) throw new Error('截图录屏功能尚未启用')
-            void capture.open(input.mode).catch((error: unknown) => { console.error('截图录屏启动失败', error) })
+            if (input.mode === 'pins') capture.pins.manage()
+            else void capture.open(input.mode).catch((error: unknown) => { console.error('截图录屏启动失败', error) })
           } else if (message.command === 'permissions-status') {
             value = features.service('orb')?.systemPermissions()
             if (value === undefined) throw new Error('悬浮球功能尚未启用')
@@ -116,6 +117,10 @@ async function main(): Promise<void> {
             const orb = features.service('orb')
             if (orb === undefined) throw new Error('悬浮球功能尚未启用')
             value = await orb.openSystemPermission(input.right)
+          } else if (message.command === 'shortcuts-status') {
+            const capture = features.service('capture')
+            if (capture === undefined) throw new Error('截图录屏功能尚未启用')
+            value = capture.shortcuts()
           } else if (message.command === 'avatar-refresh') {
             const orb = features.service('orb')
             if (orb === undefined) throw new Error('悬浮球功能尚未启用')
@@ -143,7 +148,8 @@ async function main(): Promise<void> {
     event.preventDefault()
     void stop().then(() => { app.exit(0) }, error => { console.error(error); app.exit(1) })
   })
-  send({ type: 'dsh-native-ready' })
+  // 附带辅助进程实际使用的 Electron 版本，供诊断页与 DSH 宿主版本比对。
+  send({ type: 'dsh-native-ready', electron: process.versions.electron })
 }
 
 void app.whenReady().then(main).catch(error => { console.error(error); app.exit(1) })

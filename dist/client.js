@@ -7,6 +7,282 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   const react = require("react");
   const dshClientUiPrimitives = require("@deepseek-ai/dsh-client-ui-primitives");
   const zod = require("zod");
+  function fillDiagnosticText(template, values) {
+    return template.replace(/\{(\w+)\}/gu, (_, name) => values?.[name] ?? "");
+  }
+  const STATUS_MARK = { ok: "[OK]", warn: "[WARN]", error: "[ERROR]", skip: "[SKIP]" };
+  function formatDiagnosticReport(diagnostics, translate) {
+    const env = diagnostics.environment;
+    const lines = [
+      `dsh-desktop-tools ${env.plugin}`,
+      `platform: ${env.platform}-${env.arch}${env.packaged ? " (packaged DSH)" : ""}`,
+      `electron: host ${env.hostElectron ?? "-"}, helper ${env.helperElectron ?? "-"}`,
+      `generated: ${diagnostics.generatedAt}`,
+      ""
+    ];
+    for (const item of diagnostics.items) {
+      lines.push(`${STATUS_MARK[item.status]} ${item.id}: ${fillDiagnosticText(translate(item.message), item.values).replace(/\n/gu, " | ")}`);
+    }
+    return lines.join("\n");
+  }
+  const TITLES = {
+    "config": "diagConfig",
+    "electron": "diagElectron",
+    "electron-version": "diagElectronVersion",
+    "native-module": "diagNative",
+    "runtime": "diagRuntime",
+    "feature-selection": "selection",
+    "feature-floatingBall": "floating",
+    "feature-capture": "diagCapture",
+    "shortcuts": "diagShortcuts",
+    "vision": "diagVision",
+    "permission-screen": "screenPermission",
+    "permission-accessibility": "accessibilityPermission"
+  };
+  const STATUS_LABELS = { ok: "diagOk", warn: "diagWarn", error: "diagError", skip: "diagSkip" };
+  const STATUS_COLORS = {
+    ok: "var(--dsw-alias-state-success-primary)",
+    warn: "var(--dsw-alias-state-warning-primary, #d97706)",
+    error: "var(--dsw-alias-state-error-primary)",
+    skip: "var(--dsw-alias-label-tertiary)"
+  };
+  const FIX_LABELS = {
+    "restart": "diagFixRestart",
+    "install-vision": "diagFixVision",
+    "open-screen": "openSettings",
+    "open-accessibility": "openSettings"
+  };
+  function DiagnosticsPanel({ t, services, onChanged, buttonClass, primaryButtonClass, rowClass }) {
+    const [result, setResult] = react.useState();
+    const [running, setRunning] = react.useState(false);
+    const [fixing, setFixing] = react.useState();
+    const [notice, setNotice] = react.useState("");
+    const translate = (key) => t(key);
+    const run = async () => {
+      setRunning(true);
+      setNotice("");
+      try {
+        const response = await services.diagnose();
+        if (response.ok) setResult(response.value);
+        else setNotice(t("diagFailed"));
+      } catch {
+        setNotice(t("diagFailed"));
+      } finally {
+        setRunning(false);
+      }
+    };
+    react.useEffect(() => {
+      void run();
+    }, []);
+    const fix = async (action) => {
+      if (fixing !== void 0) return;
+      setFixing(action);
+      setNotice("");
+      try {
+        if (action === "restart") await services.restart();
+        else if (action === "install-vision") {
+          const response = await services.installVision();
+          setNotice(!response.ok ? t("visionInstallFailed") : response.value.restartRequired ? t("visionRestart") : t("visionReady"));
+        } else await services.openSystemPermission(action === "open-screen" ? "screen" : "accessibility");
+      } finally {
+        setFixing(void 0);
+      }
+      onChanged();
+      await run();
+    };
+    const copyReport = async () => {
+      if (result === void 0) return;
+      try {
+        await navigator.clipboard.writeText(formatDiagnosticReport(result, translate));
+        setNotice(t("diagCopied"));
+      } catch {
+        setNotice(t("diagCopyFailed"));
+      }
+    };
+    const row = (item) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: rowClass, children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex min-w-[220px] flex-1 basis-[220px] flex-col gap-1 pr-0 sm:pr-12", children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex items-center gap-2 text-sm leading-[22px] text-[var(--dsw-alias-label-primary)]", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { "aria-hidden": "true", className: "inline-block size-2 flex-none rounded-full", style: { background: STATUS_COLORS[item.status] } }),
+          t(TITLES[item.id]),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-xs", style: { color: STATUS_COLORS[item.status] }, children: t(STATUS_LABELS[item.status]) })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "whitespace-pre-line break-all text-xs leading-[18px] text-[var(--dsw-alias-label-tertiary)]", children: fillDiagnosticText(translate(item.message), item.values) })
+      ] }),
+      item.fix !== void 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2", children: /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: buttonClass, disabled: fixing !== void 0 || running, onClick: () => {
+        void fix(item.fix);
+      }, children: fixing === item.fix ? t("diagFixing") : t(FIX_LABELS[item.fix]) }) })
+    ] }, item.id);
+    const counts = result?.items.reduce((total, item) => ({ ...total, [item.status]: total[item.status] + 1 }), { ok: 0, warn: 0, error: 0, skip: 0 });
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex min-w-0 flex-col", children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: rowClass, children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex min-w-[220px] flex-1 basis-[220px] flex-col gap-1 pr-0 sm:pr-12", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "text-sm leading-[22px] text-[var(--dsw-alias-label-primary)]", children: t("diagSummary") }),
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "text-xs leading-[18px] text-[var(--dsw-alias-label-tertiary)]", children: running ? t("diagRunning") : counts === void 0 ? t("diagDescription") : fillDiagnosticText(t("diagCounts"), { error: String(counts.error), warn: String(counts.warn), ok: String(counts.ok) }) }),
+          notice && /* @__PURE__ */ jsxRuntime.jsx("div", { role: "status", className: "text-xs leading-[18px] text-[var(--dsw-alias-label-secondary,var(--dsw-alias-label-tertiary))]", children: notice })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: buttonClass, disabled: running || result === void 0, onClick: () => {
+            void copyReport();
+          }, children: t("diagCopy") }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: primaryButtonClass, disabled: running || fixing !== void 0, onClick: () => {
+            void run();
+          }, children: running ? t("diagRunning") : t("diagRun") })
+        ] })
+      ] }),
+      result?.items.map(row)
+    ] });
+  }
+  const LIMITS = { count: 10, name: 20, prompt: 4e3 };
+  const BUILTIN_IDS = ["search", "translate", "note", "wechat", "explain", "send-to-agent"];
+  const BUILTIN_LABELS = {
+    "search": "itemSearch",
+    "translate": "itemTranslate",
+    "note": "itemNote",
+    "wechat": "itemWechat",
+    "explain": "itemExplain",
+    "send-to-agent": "itemSendToAgent"
+  };
+  function newActionId(existing) {
+    for (; ; ) {
+      const id = `a-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      if (!existing.some((action) => action.id === id)) return id;
+    }
+  }
+  function SelectionActionsEditor({ t, value, disabled, onChange, rowClass, buttonClass, primaryButtonClass, inputClass }) {
+    const [draft, setDraft] = react.useState();
+    const [error, setError] = react.useState("");
+    const custom = new Map(value.customActions.map((action) => [`custom:${action.id}`, action]));
+    const labelOf = (id) => custom.get(id)?.name ?? (id in BUILTIN_LABELS ? t(BUILTIN_LABELS[id]) : id);
+    const hidden = [...BUILTIN_IDS, ...value.customActions.map((action) => `custom:${action.id}`)].filter((id) => !value.toolbarItems.includes(id));
+    const rows = [...value.toolbarItems.map((id) => ({ id, visible: true })), ...hidden.map((id) => ({ id, visible: false }))];
+    const setVisible = (id, visible) => {
+      onChange({ ...value, toolbarItems: visible ? [...value.toolbarItems, id] : value.toolbarItems.filter((item) => item !== id) });
+    };
+    const move = (id, offset) => {
+      const items = [...value.toolbarItems];
+      const index = items.indexOf(id);
+      const target = index + offset;
+      if (index < 0 || target < 0 || target >= items.length) return;
+      [items[index], items[target]] = [items[target], items[index]];
+      onChange({ ...value, toolbarItems: items });
+    };
+    const remove = (action) => {
+      onChange({
+        customActions: value.customActions.filter((item) => item.id !== action.id),
+        toolbarItems: value.toolbarItems.filter((item) => item !== `custom:${action.id}`)
+      });
+    };
+    const commit = () => {
+      if (draft === void 0) return;
+      const name = draft.name.trim();
+      const prompt = draft.prompt.trim();
+      if (name === "" || name.length > LIMITS.name || prompt === "" || prompt.length > LIMITS.prompt) {
+        setError(t("actionInvalid"));
+        return;
+      }
+      if (draft.id !== void 0) {
+        onChange({ ...value, customActions: value.customActions.map((item) => item.id === draft.id ? { id: item.id, name, prompt } : item) });
+      } else {
+        const id = newActionId(value.customActions);
+        onChange({ customActions: [...value.customActions, { id, name, prompt }], toolbarItems: [...value.toolbarItems, `custom:${id}`] });
+      }
+      setDraft(void 0);
+      setError("");
+    };
+    return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: rowClass, children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex min-w-[220px] flex-1 basis-[220px] flex-col gap-1 pr-0 sm:pr-12", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "text-sm leading-[22px] text-[var(--dsw-alias-label-primary)]", children: t("toolbarItems") }),
+          /* @__PURE__ */ jsxRuntime.jsx("div", { className: "text-xs leading-[18px] text-[var(--dsw-alias-label-tertiary)]", children: t("toolbarItemsDescription") })
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "ml-auto flex flex-wrap items-center justify-end gap-2", children: /* @__PURE__ */ jsxRuntime.jsx(
+          "button",
+          {
+            type: "button",
+            className: buttonClass,
+            disabled: disabled || draft !== void 0 || value.customActions.length >= LIMITS.count,
+            title: value.customActions.length >= LIMITS.count ? t("actionLimit") : void 0,
+            onClick: () => {
+              setDraft({ name: "", prompt: "" });
+              setError("");
+            },
+            children: t("addAction")
+          }
+        ) })
+      ] }),
+      draft !== void 0 && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: `${rowClass} flex-col items-stretch`, children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "flex flex-col gap-1 text-sm", children: [
+          t("actionName"),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "input",
+            {
+              className: inputClass,
+              maxLength: LIMITS.name,
+              value: draft.name,
+              disabled,
+              onChange: (event) => setDraft({ ...draft, name: event.currentTarget.value })
+            }
+          )
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "flex flex-col gap-1 text-sm", children: [
+          t("actionPrompt"),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "textarea",
+            {
+              className: `${inputClass} h-auto min-h-[96px] py-2`,
+              maxLength: LIMITS.prompt,
+              value: draft.prompt,
+              disabled,
+              placeholder: t("actionPromptPlaceholder"),
+              onChange: (event) => setDraft({ ...draft, prompt: event.currentTarget.value })
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-xs leading-[18px] text-[var(--dsw-alias-label-tertiary)]", children: t("actionPromptHint") })
+        ] }),
+        error && /* @__PURE__ */ jsxRuntime.jsx("p", { role: "alert", className: "m-0 text-xs text-[var(--dsw-alias-state-error-primary)]", children: error }),
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex justify-end gap-2", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: buttonClass, onClick: () => {
+            setDraft(void 0);
+            setError("");
+          }, children: t("actionCancel") }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: primaryButtonClass, disabled, onClick: commit, children: t("actionConfirm") })
+        ] })
+      ] }),
+      rows.map(({ id, visible }, index) => {
+        const action = custom.get(id);
+        const label = labelOf(id);
+        return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: rowClass, children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex min-w-[160px] flex-1 flex-col gap-1", children: [
+            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "text-sm leading-[22px] text-[var(--dsw-alias-label-primary)]", children: label }),
+            action !== void 0 && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "truncate text-xs leading-[18px] text-[var(--dsw-alias-label-tertiary)]", title: action.prompt, children: action.prompt })
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "ml-auto flex flex-wrap items-center justify-end gap-2", children: [
+            visible && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: buttonClass, "aria-label": `${t("moveUp")} ${label}`, disabled: disabled || index === 0, onClick: () => move(id, -1), children: "↑" }),
+              /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: buttonClass, "aria-label": `${t("moveDown")} ${label}`, disabled: disabled || index >= value.toolbarItems.length - 1, onClick: () => move(id, 1), children: "↓" })
+            ] }),
+            action !== void 0 && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "button",
+                {
+                  type: "button",
+                  className: buttonClass,
+                  disabled: disabled || draft !== void 0,
+                  onClick: () => {
+                    setDraft({ id: action.id, name: action.name, prompt: action.prompt });
+                    setError("");
+                  },
+                  children: t("editAction")
+                }
+              ),
+              /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: buttonClass, disabled, onClick: () => remove(action), children: t("deleteAction") })
+            ] }),
+            /* @__PURE__ */ jsxRuntime.jsx(dshClientUiPrimitives.Switch, { checked: visible, disabled, label, onChange: (next) => setVisible(id, next) })
+          ] })
+        ] }, id);
+      })
+    ] });
+  }
   const LANGUAGES = [
     ["en", "English"],
     ["简体中文", "简体中文"],
@@ -73,7 +349,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     const mac = platform === "darwin";
     return value.split("+").map((part) => part === "CommandOrControl" ? mac ? "⌘" : "Ctrl" : mac && part === "Alt" ? "⌥" : mac && part === "Shift" ? "⇧" : part).join(" + ");
   }
-  const tabs = ["selection", "floating", "screenshot", "recording"];
+  const tabs = ["selection", "floating", "screenshot", "recording", "diagnostics"];
   function statusLabel(phase, t) {
     if (phase === "active") return t("featureActive");
     if (phase === "starting") return t("featureStarting");
@@ -239,6 +515,12 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
       setSnapshot(result.value.snapshot);
       setDraft(result.value.snapshot.config);
       setPending(!result.value.applied);
+      const failures = result.value.shortcutFailures ?? [];
+      if (result.value.applied && failures.length > 0) {
+        const list = failures.map((item) => `${acceleratorLabel(item.accelerator, result.value.snapshot.platform)}（${t(item.reason === "occupied" ? "shortcutOccupied" : "shortcutInvalidReason")}）`).join("、");
+        setMessage(fillDiagnosticText(t("savedShortcutFailed"), { list }));
+        return;
+      }
       setMessage(result.value.applied ? t("saved") : t("pending"));
     };
     const retry = async () => {
@@ -256,7 +538,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
       setMessage(applied ? t("saved") : t("pending"));
     };
     const setFeature = (feature, enabled2) => {
-      if (draft === void 0) return;
+      if (draft === void 0 || feature === "diagnostics") return;
       if (feature === "selection") setDraft({ ...draft, selection: { ...draft.selection, enabled: enabled2 } });
       else if (feature === "floating") setDraft({ ...draft, floatingBall: { ...draft.floatingBall, enabled: enabled2 } });
       else if (feature === "screenshot") setDraft({ ...draft, screenshot: { ...draft.screenshot, enabled: enabled2 } });
@@ -268,9 +550,10 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
       if (draft === void 0) return;
       if (field === "screenshot.shortcut") setDraft({ ...draft, screenshot: { ...draft.screenshot, shortcut: value } });
       else if (field === "screenshot.longShortcut") setDraft({ ...draft, screenshot: { ...draft.screenshot, longShortcut: value } });
+      else if (field === "screenshot.pinsShortcut") setDraft({ ...draft, screenshot: { ...draft.screenshot, pinsShortcut: value } });
       else setDraft({ ...draft, recording: { ...draft.recording, shortcut: value } });
     };
-    const shortcutValue = (field) => draft === void 0 ? "" : field === "screenshot.shortcut" ? draft.screenshot.shortcut : field === "screenshot.longShortcut" ? draft.screenshot.longShortcut : draft.recording.shortcut;
+    const shortcutValue = (field) => draft === void 0 ? "" : field === "screenshot.shortcut" ? draft.screenshot.shortcut : field === "screenshot.longShortcut" ? draft.screenshot.longShortcut : field === "screenshot.pinsShortcut" ? draft.screenshot.pinsShortcut : draft.recording.shortcut;
     const captureShortcut = (event) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -357,15 +640,15 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     const shortcutRow = (field) => /* @__PURE__ */ jsxRuntime.jsxs(
       Row,
       {
-        title: t(field === "screenshot.longShortcut" ? "longShortcut" : "shortcut"),
-        description: capturing === field ? t("recordingShortcut") : t("shortcutDescription"),
+        title: t(field === "screenshot.longShortcut" ? "longShortcut" : field === "screenshot.pinsShortcut" ? "pinsShortcut" : "shortcut"),
+        description: capturing === field ? t("recordingShortcut") : field === "screenshot.pinsShortcut" ? t("pinsShortcutDescription") : t("shortcutDescription"),
         children: [
           /* @__PURE__ */ jsxRuntime.jsx("kbd", { className: "inline-flex h-9 min-w-[58px] items-center justify-center rounded-[var(--dsw-radius-md)] bg-[var(--dsw-alias-bg-module-platform)] px-3 font-[inherit] text-sm", children: acceleratorLabel(shortcutValue(field), snapshot?.platform) }),
           /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: BUTTON_CLASS, onClick: () => setCapturing(capturing === field ? void 0 : field), children: capturing === field ? t("cancelRecording") : t("recordShortcut") }),
           shortcutValue(field) !== "" && /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: BUTTON_CLASS, onClick: () => setShortcut(field, ""), children: t("clearShortcut") }),
           /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: BUTTON_CLASS, disabled: active?.phase !== "active", onClick: () => {
-            void services.openCapture(field === "recording.shortcut" ? "video" : field === "screenshot.longShortcut" ? "long" : "image");
-          }, children: t("tryNow") })
+            void services.openCapture(field === "recording.shortcut" ? "video" : field === "screenshot.longShortcut" ? "long" : field === "screenshot.pinsShortcut" ? "pins" : "image");
+          }, children: field === "screenshot.pinsShortcut" ? t("openPins") : t("tryNow") })
         ]
       },
       field
@@ -403,7 +686,20 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
         item
       )) }),
       /* @__PURE__ */ jsxRuntime.jsxs("div", { id: "desktop-tools-panel", role: "tabpanel", "aria-labelledby": `desktop-tools-tab-${tab}`, className: "flex min-w-0 flex-col pt-0.5", children: [
-        /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t(enableKey), description: enabled ? statusLabel(active?.phase ?? "disabled", t) : t("featureDisabled"), alert: active?.phase === "error" && active.error ? active.error : void 0, children: /* @__PURE__ */ jsxRuntime.jsx(dshClientUiPrimitives.Switch, { checked: enabled, disabled: busy, label: t(enableKey), onChange: (next) => setFeature(tab, next) }) }),
+        tab !== "diagnostics" && /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t(enableKey), description: enabled ? statusLabel(active?.phase ?? "disabled", t) : t("featureDisabled"), alert: active?.phase === "error" && active.error ? active.error : void 0, children: /* @__PURE__ */ jsxRuntime.jsx(dshClientUiPrimitives.Switch, { checked: enabled, disabled: busy, label: t(enableKey), onChange: (next) => setFeature(tab, next) }) }),
+        tab === "diagnostics" && /* @__PURE__ */ jsxRuntime.jsx(
+          DiagnosticsPanel,
+          {
+            t,
+            services,
+            onChanged: () => {
+              void load();
+            },
+            buttonClass: BUTTON_CLASS,
+            primaryButtonClass: PRIMARY_BUTTON_CLASS,
+            rowClass: ROW_CLASS
+          }
+        ),
         tab === "selection" && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
           /* @__PURE__ */ jsxRuntime.jsxs(Row, { title: t("language"), description: t("languageDescription"), children: [
             customLanguage && /* @__PURE__ */ jsxRuntime.jsx(
@@ -432,7 +728,20 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
           ] }),
           /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t("compatibilityCopy"), description: t("compatibilityCopyDescription"), children: /* @__PURE__ */ jsxRuntime.jsx(dshClientUiPrimitives.Switch, { checked: draft.selection.compatibilityCopy, disabled: busy, label: t("compatibilityCopy"), onChange: (next) => setDraft({ ...draft, selection: { ...draft.selection, compatibilityCopy: next } }) }) }),
           /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t("customModel"), description: draft.selection.model === void 0 ? t("followSession") : t("customModelDescription"), children: /* @__PURE__ */ jsxRuntime.jsx(dshClientUiPrimitives.Switch, { checked: draft.selection.model !== void 0, disabled: busy, label: t("customModel"), onChange: setSelectionModelEnabled }) }),
-          draft.selection.model !== void 0 && /* @__PURE__ */ jsxRuntime.jsx(ModelRows, { value: draft.selection.model, disabled: busy, t, catalog, onChange: (value) => setModel("selection", value) })
+          draft.selection.model !== void 0 && /* @__PURE__ */ jsxRuntime.jsx(ModelRows, { value: draft.selection.model, disabled: busy, t, catalog, onChange: (value) => setModel("selection", value) }),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            SelectionActionsEditor,
+            {
+              t,
+              disabled: busy,
+              value: draft.selection,
+              onChange: (value) => setDraft({ ...draft, selection: { ...draft.selection, customActions: value.customActions, toolbarItems: value.toolbarItems } }),
+              rowClass: ROW_CLASS,
+              buttonClass: BUTTON_CLASS,
+              primaryButtonClass: PRIMARY_BUTTON_CLASS,
+              inputClass: INPUT_CLASS
+            }
+          )
         ] }),
         tab === "floating" && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
           /* @__PURE__ */ jsxRuntime.jsxs(Row, { title: t("avatar"), description: avatar === void 0 && defaultAvatar !== void 0 ? `${t("avatarDescription")} ${t("defaultAvatar")}` : t("avatarDescription"), children: [
@@ -481,6 +790,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
         tab === "screenshot" && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
           shortcutRow("screenshot.shortcut"),
           shortcutRow("screenshot.longShortcut"),
+          shortcutRow("screenshot.pinsShortcut"),
           /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t("visionTitle"), description: /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
             t("visionDescription"),
             /* @__PURE__ */ jsxRuntime.jsx("br", {}),
@@ -637,7 +947,98 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     otherLanguagePlaceholder: "Type a target language",
     modelUnavailable: "unavailable",
     effortNone: "Not supported",
-    defaultAvatar: "Default avatar"
+    defaultAvatar: "Default avatar",
+    savedShortcutFailed: "Saved and applied, but these shortcuts could not be registered: {list}. Choose another combination.",
+    shortcutOccupied: "taken by another app",
+    shortcutInvalidReason: "invalid combination",
+    toolbarItems: "Toolbar buttons",
+    toolbarItemsDescription: "Turn buttons on or off and change their order. Custom actions send your own prompt with the selected text.",
+    itemSearch: "Search",
+    itemTranslate: "Translate",
+    itemNote: "Note",
+    itemWechat: "WeChat article",
+    itemExplain: "Explain",
+    itemSendToAgent: "Send to assistant",
+    moveUp: "Move up",
+    moveDown: "Move down",
+    addAction: "Add action",
+    editAction: "Edit",
+    deleteAction: "Delete",
+    actionName: "Name (up to 20 characters)",
+    actionPrompt: "Prompt",
+    actionPromptPlaceholder: "Rewrite {text} in a formal tone.",
+    actionPromptHint: "{text} is replaced with the selected text and {language} with the target language. Without {text}, the selected text is appended at the end.",
+    actionCancel: "Cancel",
+    actionConfirm: "Done",
+    actionLimit: "Up to 10 custom actions.",
+    actionInvalid: "Enter a name (up to 20 characters) and a prompt (up to 4000 characters).",
+    pinsShortcut: "Show or hide all pins",
+    pinsShortcutDescription: "Global shortcut that shows or hides every pinned image. Save to apply.",
+    openPins: "Manage pins",
+    diagnostics: "Diagnostics",
+    diagSummary: "Environment check",
+    diagDescription: "Checks the helper, native modules, shortcuts, prerequisite plugin and system permissions.",
+    diagRun: "Run check",
+    diagRunning: "Checking…",
+    diagCopy: "Copy report",
+    diagCopied: "Diagnostic report copied.",
+    diagCopyFailed: "Could not copy the report.",
+    diagFailed: "Could not run diagnostics.",
+    diagCounts: "{error} errors, {warn} warnings, {ok} passed",
+    diagFixing: "Working…",
+    diagFixRestart: "Restart helper",
+    diagFixVision: "Install or enable",
+    diagOk: "OK",
+    diagWarn: "Needs attention",
+    diagError: "Error",
+    diagSkip: "Not applicable",
+    diagConfig: "Configuration file",
+    diagElectron: "Helper Electron",
+    diagElectronVersion: "Electron version",
+    diagNative: "Native module",
+    diagRuntime: "Helper process",
+    diagCapture: "Screenshot and recording",
+    diagShortcuts: "Global shortcuts",
+    diagVision: "dsh-vision-router",
+    diagConfigOk: "Read from {path}",
+    diagConfigError: "{path} cannot be read: {error}",
+    diagElectronDev: "Reusing the Electron that runs DSH: {path}",
+    diagElectronConfigured: "Using the Electron set in plugin settings: {path}",
+    diagElectronFound: "Packaged DSH; using the standalone Electron at {path}",
+    diagElectronNotFound: "The Electron set in plugin settings does not exist: {path}",
+    diagElectronMissing: "Packaged DSH needs a standalone Electron. Set electronExecutable in plugin settings, set DSH_DESKTOP_TOOLS_ELECTRON, or extract the official Electron archive to one of these paths:\n{tried}",
+    diagElectronVersionMatch: "DSH {host}, helper {helper}",
+    diagElectronVersionMismatch: "DSH uses Electron {host} but the helper uses {helper}. Use the same major version.",
+    diagElectronVersionUnknown: "The helper is not running, so its version cannot be checked.",
+    diagNativeFound: "{name} is installed",
+    diagNativeMissing: "{name} cannot be found. Reinstall the plugin. {error}",
+    diagNativeUnsupported: "No Koffi prebuilt package is provided for {platform}.",
+    diagRuntimeRunning: "Running",
+    diagRuntimeIdle: "No tool is enabled, so the helper is not started.",
+    diagRuntimeStopped: "Tools are enabled but the helper is not running. {error}",
+    diagRuntimeDegraded: "Some tools failed to start. {error}",
+    diagFeatureActive: "Running",
+    diagFeatureStarting: "Starting",
+    diagFeatureDisabled: "Disabled",
+    diagFeatureNotRunning: "Enabled but not running.",
+    diagFeatureError: "{error}",
+    diagShortcutsInactive: "Screenshot and recording are not running.",
+    diagShortcutsUnknown: "Could not read shortcut status. {error}",
+    diagShortcutsNone: "No shortcut is set.",
+    diagShortcutsOk: "Registered: {list}",
+    diagShortcutsOccupied: "Taken by another app: {occupied}. Choose another combination.",
+    diagShortcutsInvalid: "Invalid combination: {invalid}",
+    diagShortcutsFailed: "Taken by another app: {occupied}. Invalid: {invalid}",
+    diagVisionNotNeeded: "Only needed by screenshot and recording, which are disabled.",
+    diagVisionReady: "OCR tools are available.",
+    diagVisionMissing: "Not installed. Extract text, Translate and Knowledge graph are unavailable.",
+    diagVisionDisabled: "Installed {version} but disabled.",
+    diagVisionToolOff: "Enabled {version} but its vision tools are off. Turn on Tools in its settings.",
+    diagVisionUnknown: "Could not read the plugin manager.",
+    diagPermissionNotNeeded: "Only required on macOS.",
+    diagPermissionUnknown: "Enable the floating assistant to check this permission.",
+    diagPermissionGranted: "Granted",
+    diagPermissionDenied: "Not granted"
   };
   const zh = {
     title: "桌面工具",
@@ -737,7 +1138,98 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     otherLanguagePlaceholder: "输入目标语言",
     modelUnavailable: "当前不可用",
     effortNone: "不支持",
-    defaultAvatar: "默认头像"
+    defaultAvatar: "默认头像",
+    savedShortcutFailed: "已保存并生效，但以下快捷键未能注册：{list}，请换一个组合。",
+    shortcutOccupied: "被其他程序占用",
+    shortcutInvalidReason: "组合无效",
+    toolbarItems: "工具栏按钮",
+    toolbarItemsDescription: "开关按钮并调整顺序。自定义动作会把你写的提示词连同选中文字发给模型。",
+    itemSearch: "搜索",
+    itemTranslate: "翻译",
+    itemNote: "笔记",
+    itemWechat: "公众号文章",
+    itemExplain: "解释",
+    itemSendToAgent: "发给助手",
+    moveUp: "上移",
+    moveDown: "下移",
+    addAction: "添加动作",
+    editAction: "编辑",
+    deleteAction: "删除",
+    actionName: "名称（最多 20 字）",
+    actionPrompt: "提示词",
+    actionPromptPlaceholder: "把 {text} 改写成正式的书面语。",
+    actionPromptHint: "{text} 会替换为选中的文字，{language} 会替换为目标语言；提示词里没有 {text} 时，选中文字附在末尾。",
+    actionCancel: "取消",
+    actionConfirm: "完成",
+    actionLimit: "最多 10 个自定义动作。",
+    actionInvalid: "请填写名称（最多 20 字）和提示词（最多 4000 字）。",
+    pinsShortcut: "显示 / 隐藏全部钉图",
+    pinsShortcutDescription: "系统级快捷键，一键显示或隐藏所有钉在桌面的图片。保存后生效。",
+    openPins: "钉图管理",
+    diagnostics: "诊断",
+    diagSummary: "环境检查",
+    diagDescription: "检查辅助进程、原生模块、快捷键、前置插件和系统权限。",
+    diagRun: "重新检测",
+    diagRunning: "正在检测…",
+    diagCopy: "复制诊断报告",
+    diagCopied: "诊断报告已复制。",
+    diagCopyFailed: "无法复制诊断报告。",
+    diagFailed: "诊断失败。",
+    diagCounts: "异常 {error} 项，需要注意 {warn} 项，正常 {ok} 项",
+    diagFixing: "处理中…",
+    diagFixRestart: "重启辅助进程",
+    diagFixVision: "安装或启用",
+    diagOk: "正常",
+    diagWarn: "需要注意",
+    diagError: "异常",
+    diagSkip: "不适用",
+    diagConfig: "配置文件",
+    diagElectron: "辅助进程 Electron",
+    diagElectronVersion: "Electron 版本",
+    diagNative: "原生模块",
+    diagRuntime: "辅助进程",
+    diagCapture: "截图与录屏",
+    diagShortcuts: "全局快捷键",
+    diagVision: "dsh-vision-router",
+    diagConfigOk: "已读取 {path}",
+    diagConfigError: "无法读取 {path}：{error}",
+    diagElectronDev: "复用启动 DSH 的 Electron：{path}",
+    diagElectronConfigured: "使用插件设置中指定的 Electron：{path}",
+    diagElectronFound: "安装版 DSH，使用独立 Electron：{path}",
+    diagElectronNotFound: "插件设置中指定的 Electron 不存在：{path}",
+    diagElectronMissing: "安装版 DSH 需要独立 Electron。请在插件设置中填写 electronExecutable，或设置环境变量 DSH_DESKTOP_TOOLS_ELECTRON，或把 Electron 官方压缩包解压到以下路径之一：\n{tried}",
+    diagElectronVersionMatch: "DSH {host}，辅助进程 {helper}",
+    diagElectronVersionMismatch: "DSH 使用 Electron {host}，辅助进程使用 {helper}，请换成相同大版本。",
+    diagElectronVersionUnknown: "辅助进程未运行，暂时无法检查版本。",
+    diagNativeFound: "{name} 已安装",
+    diagNativeMissing: "找不到 {name}，请重新安装插件。{error}",
+    diagNativeUnsupported: "{platform} 平台没有 Koffi 预编译包。",
+    diagRuntimeRunning: "运行中",
+    diagRuntimeIdle: "没有启用任何功能，辅助进程未启动。",
+    diagRuntimeStopped: "已启用功能，但辅助进程没有运行。{error}",
+    diagRuntimeDegraded: "部分功能启动失败。{error}",
+    diagFeatureActive: "运行中",
+    diagFeatureStarting: "正在启动",
+    diagFeatureDisabled: "已停用",
+    diagFeatureNotRunning: "已启用，但没有运行。",
+    diagFeatureError: "{error}",
+    diagShortcutsInactive: "截图与录屏未运行。",
+    diagShortcutsUnknown: "无法读取快捷键状态。{error}",
+    diagShortcutsNone: "没有设置快捷键。",
+    diagShortcutsOk: "已注册：{list}",
+    diagShortcutsOccupied: "被其他程序占用：{occupied}，请换一个组合。",
+    diagShortcutsInvalid: "组合无效：{invalid}",
+    diagShortcutsFailed: "被其他程序占用：{occupied}；组合无效：{invalid}",
+    diagVisionNotNeeded: "仅截图与录屏需要，当前均未启用。",
+    diagVisionReady: "OCR 工具可用。",
+    diagVisionMissing: "未安装，「提取文字」「翻译」「知识图谱」不可用。",
+    diagVisionDisabled: "已安装 {version}，但未启用。",
+    diagVisionToolOff: "已启用 {version}，但视觉工具已关闭，请在它的设置中打开「工具」。",
+    diagVisionUnknown: "无法读取插件管理器。",
+    diagPermissionNotNeeded: "仅 macOS 需要。",
+    diagPermissionUnknown: "启用悬浮球后才能检查此权限。",
+    diagPermissionGranted: "已授权",
+    diagPermissionDenied: "未授权"
   };
   const desktopToolsCss = `/*! tailwindcss v4.3.5 | MIT License | https://tailwindcss.com */
 @layer properties;
@@ -851,9 +1343,6 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .m-0 {
     margin: 0px;
   }
-  .mt-0 {
-    margin-top: 0px;
-  }
   .mt-0\\.5 {
     margin-top: calc(var(--spacing) * 0.5);
   }
@@ -894,13 +1383,13 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     width: var(--spacing);
     height: var(--spacing);
   }
+  .size-2 {
+    width: calc(var(--spacing) * 2);
+    height: calc(var(--spacing) * 2);
+  }
   .size-9 {
     width: calc(var(--spacing) * 9);
     height: calc(var(--spacing) * 9);
-  }
-  .size-12 {
-    width: calc(var(--spacing) * 12);
-    height: calc(var(--spacing) * 12);
   }
   .h-9 {
     height: calc(var(--spacing) * 9);
@@ -914,8 +1403,11 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .h-120 {
     height: calc(var(--spacing) * 120);
   }
-  .min-h-10 {
-    min-height: calc(var(--spacing) * 10);
+  .h-auto {
+    height: auto;
+  }
+  .min-h-\\[96px\\] {
+    min-height: 96px;
   }
   .w-36 {
     width: calc(var(--spacing) * 36);
@@ -935,6 +1427,9 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .min-w-\\[58px\\] {
     min-width: 58px;
   }
+  .min-w-\\[160px\\] {
+    min-width: 160px;
+  }
   .min-w-\\[220px\\] {
     min-width: 220px;
   }
@@ -944,17 +1439,11 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .flex-none {
     flex: none;
   }
-  .flex-grow {
-    flex-grow: 1;
-  }
   .grow {
     flex-grow: 1;
   }
   .basis-\\[220px\\] {
     flex-basis: 220px;
-  }
-  .basis-full {
-    flex-basis: 100%;
   }
   .transform {
     transform: var(--tw-rotate-x, ) var(--tw-rotate-y, ) var(--tw-rotate-z, ) var(--tw-skew-x, ) var(--tw-skew-y, );
@@ -980,6 +1469,9 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .items-end {
     align-items: flex-end;
   }
+  .items-stretch {
+    align-items: stretch;
+  }
   .justify-between {
     justify-content: space-between;
   }
@@ -998,12 +1490,6 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .gap-3 {
     gap: calc(var(--spacing) * 3);
   }
-  .gap-4 {
-    gap: calc(var(--spacing) * 4);
-  }
-  .gap-6 {
-    gap: calc(var(--spacing) * 6);
-  }
   .gap-x-6 {
     column-gap: calc(var(--spacing) * 6);
   }
@@ -1018,14 +1504,14 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .overflow-x-auto {
-    overflow-x: auto;
-  }
   .rounded {
     border-radius: 0.25rem;
   }
   .rounded-\\[var\\(--dsw-radius-md\\)\\] {
     border-radius: var(--dsw-radius-md);
+  }
+  .rounded-full {
+    border-radius: calc(infinity * 1px);
   }
   .border {
     border-style: var(--tw-border-style);
@@ -1039,21 +1525,9 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     border-style: var(--tw-border-style);
     border-width: 0.5px;
   }
-  .border-t {
-    border-top-style: var(--tw-border-style);
-    border-top-width: 1px;
-  }
   .border-t-\\[0\\.5px\\] {
     border-top-style: var(--tw-border-style);
     border-top-width: 0.5px;
-  }
-  .border-b {
-    border-bottom-style: var(--tw-border-style);
-    border-bottom-width: 1px;
-  }
-  .border-b-2 {
-    border-bottom-style: var(--tw-border-style);
-    border-bottom-width: 2px;
   }
   .border-b-\\[0\\.5px\\] {
     border-bottom-style: var(--tw-border-style);
@@ -1084,12 +1558,6 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .object-cover {
     object-fit: cover;
   }
-  .p-3 {
-    padding: calc(var(--spacing) * 3);
-  }
-  .px-2 {
-    padding-inline: calc(var(--spacing) * 2);
-  }
   .px-3 {
     padding-inline: calc(var(--spacing) * 3);
   }
@@ -1099,23 +1567,14 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .px-px {
     padding-inline: 1px;
   }
-  .py-1 {
-    padding-block: var(--spacing);
-  }
   .py-2 {
     padding-block: calc(var(--spacing) * 2);
   }
   .py-4 {
     padding-block: calc(var(--spacing) * 4);
   }
-  .pt-0 {
-    padding-top: 0px;
-  }
   .pt-0\\.5 {
     padding-top: calc(var(--spacing) * 0.5);
-  }
-  .pt-3 {
-    padding-top: calc(var(--spacing) * 3);
   }
   .pt-4 {
     padding-top: calc(var(--spacing) * 4);
@@ -1131,10 +1590,6 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   }
   .font-\\[inherit\\] {
     font-family: inherit;
-  }
-  .text-base {
-    font-size: var(--text-base);
-    line-height: var(--tw-leading, var(--text-base--line-height));
   }
   .text-lg {
     font-size: var(--text-lg);
@@ -1174,14 +1629,23 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .text-wrap {
     text-wrap: wrap;
   }
+  .break-all {
+    word-break: break-all;
+  }
   .whitespace-nowrap {
     white-space: nowrap;
+  }
+  .whitespace-pre-line {
+    white-space: pre-line;
   }
   .text-\\[var\\(--dsw-alias-label-primary\\)\\] {
     color: var(--dsw-alias-label-primary);
   }
   .text-\\[var\\(--dsw-alias-label-primary-foreground\\)\\] {
     color: var(--dsw-alias-label-primary-foreground);
+  }
+  .text-\\[var\\(--dsw-alias-label-secondary\\,var\\(--dsw-alias-label-tertiary\\)\\)\\] {
+    color: var(--dsw-alias-label-secondary,var(--dsw-alias-label-tertiary));
   }
   .text-\\[var\\(--dsw-alias-label-tertiary\\)\\] {
     color: var(--dsw-alias-label-tertiary);
@@ -1191,9 +1655,6 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   }
   .text-\\[var\\(--dsw-alias-state-success-primary\\)\\] {
     color: var(--dsw-alias-state-success-primary);
-  }
-  .text-white {
-    color: var(--color-white);
   }
   .capitalize {
     text-transform: capitalize;
@@ -1768,7 +2229,8 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
       "desktopTools/update": method("update", [parameter("config", json)], json),
       "desktopTools/restart": method("restart", [], json),
       "desktopTools/installVision": method("installVision", [], json),
-      "desktopTools/openCapture": method("openCapture", [parameter("mode", zod.z.enum(["image", "video", "long"]))], zod.z.object({ opened: zod.z.literal(true) })),
+      "desktopTools/diagnose": method("diagnose", [], json),
+      "desktopTools/openCapture": method("openCapture", [parameter("mode", zod.z.enum(["image", "video", "long", "pins"]))], zod.z.object({ opened: zod.z.literal(true) })),
       "desktopTools/avatar": method("avatar", [], zod.z.object({ dataUrl: zod.z.string().optional(), defaultDataUrl: zod.z.string().optional() })),
       "desktopTools/setAvatar": method("setAvatar", [parameter("dataUrl", zod.z.string()), parameter("fileName", zod.z.string())], json),
       "desktopTools/restoreAvatar": method("restoreAvatar", [], json),
@@ -1807,6 +2269,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
         openSystemPermission: (right) => tools().openSystemPermission(right),
         installVision: () => tools().installVision(),
         openCapture: (mode) => tools().openCapture(mode),
+        diagnose: () => tools().diagnose(),
         async modelCatalog() {
           if (sessionRemote === void 0) return void 0;
           const result = await sessionRemote.modelCatalog();

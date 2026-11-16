@@ -84,6 +84,7 @@ const selection = {
   sendToAgent: () => ipcRenderer.invoke(DESKTOP_IPC.selectionAttach),
   setLanguage: (language: string) => ipcRenderer.invoke(DESKTOP_IPC.selectionSetLanguage, language),
   interact: () => ipcRenderer.invoke(DESKTOP_IPC.selectionInteract),
+  items: () => ipcRenderer.invoke(DESKTOP_IPC.selectionItems),
   setContentSize: (size: { width: number; height: number }) => ipcRenderer.invoke(DESKTOP_IPC.selectionSetContentSize, size),
   onState: (listener: (state: unknown) => void) => {
     const handle = (_event: Electron.IpcRendererEvent, state: unknown): void => { listener(state) }

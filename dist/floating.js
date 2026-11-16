@@ -1,6 +1,6 @@
-import { n as SCHEME, t as DESKTOP_IPC } from "./ipc-DldzT79T.js";
-import { _ as raiseOverlayAboveObservationFrame, a as applyFloatingOverlayGuard, c as moveFloatingBall, d as resetFloatingOverlayGuard, f as setFloatingExpanded, g as hideObservationFrame, h as createObservationFrameWindow, i as writeOrbAgentModels, l as overlayWindowExcludeIds, o as clampFloatingWindow, p as unsnapDockedBall, r as readOrbAgentModels, s as createFloatingWindow, t as isOrbAgentModelSelection, v as showObservationFrame } from "./orb-agent-models-DjBEwJ_m.js";
-import { n as readDesktopToolsConfig, r as writeDesktopToolsConfig } from "./desktop-tools-config-CoArygqo.js";
+import { n as SCHEME, t as DESKTOP_IPC } from "./ipc-whBK8Kjb.js";
+import { _ as raiseOverlayAboveObservationFrame, a as applyFloatingOverlayGuard, c as moveFloatingBall, d as resetFloatingOverlayGuard, f as setFloatingExpanded, g as hideObservationFrame, h as createObservationFrameWindow, i as writeOrbAgentModels, l as overlayWindowExcludeIds, o as clampFloatingWindow, p as unsnapDockedBall, r as readOrbAgentModels, s as createFloatingWindow, t as isOrbAgentModelSelection, v as showObservationFrame } from "./orb-agent-models-D7Ei0jlZ.js";
+import { i as writeDesktopToolsConfig, r as readDesktopToolsConfig } from "./desktop-tools-config-A_wdY9X1.js";
 import { a as installOrbAvatarFromPath, c as orbSettingsSupported, d as serveOrbAvatar, o as orbAvatarCacheToken, r as assertOrbSettingsWritable, s as orbAvatarUrl, t as DEFAULT_ORB_AVATAR_FILE, u as restoreOrbAvatar } from "./orb-avatar-DgC5zfjx.js";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -317,7 +317,11 @@ async function activate(context) {
 		},
 		selectionEnabled: () => context.service("selection")?.enabled() ?? false,
 		captureEnabled,
-		wechatEnabled: () => context.service("wechat") !== void 0
+		wechatEnabled: () => context.service("wechat") !== void 0,
+		pins: () => {
+			context.service("capture")?.pins.manage();
+		},
+		pinsEnabled: () => context.service("capture") !== void 0
 	}, {
 		backgroundSupported: !environment.standalone,
 		loadCatalog: loadFloatingModelCatalog,

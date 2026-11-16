@@ -1,4 +1,6 @@
 const api = window.dshDesktop.selection
+// 由模型生成结果的动作：翻译、解释与用户自定义动作共用同一套界面。
+const MODEL_ACTIONS = ['translate', 'explain', 'custom']
 const element = id => document.getElementById(id)
 
 void (async () => {
@@ -92,7 +94,7 @@ void (async () => {
     const importChanged = importedInput !== undefined && importedInput !== JSON.stringify(importInput())
     element('import-changed').hidden = !importChanged
     element('stop').hidden = !busy
-    element('retry').hidden = !initial || !['translate', 'explain'].includes(initial.action) || busy
+    element('retry').hidden = !initial || !MODEL_ACTIONS.includes(initial.action) || busy
     element('copy').disabled = initial?.action === 'note' ? element('note-body').value.trim() === '' : output === ''
     element('fetch').disabled = fetching || saving
     element('import-preview').disabled = fetching || saving
@@ -345,6 +347,7 @@ void (async () => {
   element('note-body').addEventListener('input', syncControls)
   initial = await result('init')
   const title = initial.action === 'translate' ? messages.selectionToolbarTranslate
+    : initial.action === 'custom' ? (initial.customName ?? '')
     : initial.action === 'explain' ? messages.selectionToolbarExplain
       : initial.action === 'note' ? messages.selectionToolbarNote : messages.selectionToolbarWechat
   document.title = title
@@ -358,8 +361,8 @@ void (async () => {
   element('note-form').hidden = initial.action !== 'note'
   element('original').hidden = initial.action === 'note' || initial.action === 'wechat'
   element('answer').hidden = initial.action === 'note'
-  element('settings').hidden = initial.action !== 'translate' && initial.action !== 'explain'
-  element('model-row').hidden = initial.action !== 'translate' && initial.action !== 'explain'
+  element('settings').hidden = !MODEL_ACTIONS.includes(initial.action)
+  element('model-row').hidden = !MODEL_ACTIONS.includes(initial.action)
   if (!element('model-row').hidden) guarded(loadModels)
   const canSave = initial.action === 'note' || initial.action === 'wechat'
   element('save').hidden = !canSave
@@ -369,6 +372,6 @@ void (async () => {
   const articleLink = initial.text.match(/https?:\/\/mp\.weixin\.qq\.com\/s(?:\/[^\s<>"']*|\?[^\s<>"']*)/i)?.[0]
   if (articleLink) element('article-url').value = articleLink
   syncControls()
-  if (initial.action === 'translate' || initial.action === 'explain') guarded(run)
+  if (MODEL_ACTIONS.includes(initial.action)) guarded(run)
   else if (initial.action === 'wechat' && articleLink) guarded(fetchArticle)
 })()

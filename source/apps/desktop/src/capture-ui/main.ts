@@ -193,7 +193,7 @@ void (async () => {
     const choose = (next: Tool): void => { commitText(); tool = tool === next ? undefined : next; popover = undefined; render() }
     const shapeIcon: IconName = shape
     const needsVision = vision !== 'ready' && vision !== 'unknown'
-    const analyze = (kind: 'ocr' | 'translate' | 'graph'): void => { void runImage(async (png) => { await request('analyze', { kind, data: png }); await close(true) }) }
+    const analyze = (kind: 'ocr' | 'translate' | 'graph' | 'ask'): void => { void runImage(async (png) => { await request('analyze', { kind, data: png }); await close(true) }) }
     return [
       button(shapeIcon, m.captureShape, () => { if (tool === shape) popover = popover === 'shape' ? undefined : 'shape'; else { choose(shape); popover = 'shape' }; render() }, { pressed: tool === shape, disabled: !ready, menu: true, expanded: popover === 'shape' }),
       button('pen', m.capturePen, () => { choose('pen') }, { pressed: tool === 'pen', disabled: !ready }),
@@ -203,6 +203,7 @@ void (async () => {
       divider(),
       button('pin', m.capturePin, () => { void runImage(async (png) => { await request('pin', { data: png, bounds: selection }); await close(true) }) }, { disabled: !ready }),
       button('long', m.captureLong, () => { void startLong() }, { disabled: !ready }),
+      button('ask', m.captureAsk, () => { analyze('ask') }, { disabled: !ready }),
       button('graph', m.captureGraph, () => { analyze('graph') }, { disabled: !ready, badge: needsVision }),
       button('translate', m.captureTranslate, () => { analyze('translate') }, { disabled: !ready, badge: needsVision }),
       button('ocr', m.captureOcr, () => { analyze('ocr') }, { disabled: !ready, badge: needsVision }),
@@ -392,12 +393,13 @@ void (async () => {
     if (phase === 'long-result' && longResult) {
       const image = h('img', { className: 'long-image', alt: m.captureLong })
       longResult.toBlob(blob => { if (blob) image.src = URL.createObjectURL(blob) }, 'image/png')
-      const analyze = (kind: 'ocr' | 'translate' | 'graph'): void => { void runLong(async (png) => { await request('analyze', { kind, data: png, long: true }); await close(true) }) }
+      const analyze = (kind: 'ocr' | 'translate' | 'graph' | 'ask'): void => { void runLong(async (png) => { await request('analyze', { kind, data: png, long: true }); await close(true) }) }
       panel.append(
         h('div', { className: 'panel-head' }, h('strong', {}, m.captureLong ?? ''), h('span', { className: 'hint' }, `${longResult.width}×${longResult.height}`)),
         h('div', { className: 'long-scroll' }, image),
         h('div', { className: 'bar-row wrap' },
           button('pin', m.capturePin, () => { void runLong(async (png) => { await request('pin', { data: png, fit: true, scale: longScale }); await close(true) }) }),
+          button('ask', m.captureAsk, () => { analyze('ask') }),
           button('ocr', m.captureOcr, () => { analyze('ocr') }),
           button('translate', m.captureTranslate, () => { analyze('translate') }),
           button('graph', m.captureGraph, () => { analyze('graph') }),

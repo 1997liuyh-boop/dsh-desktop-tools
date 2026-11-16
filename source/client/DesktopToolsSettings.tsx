@@ -1,7 +1,10 @@
 /** 桌面工具的分区设置和功能运行状态。 */
 import { useEffect, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
-import type { DesktopModelSelection, DesktopToolsConfig, DesktopToolsSnapshot, DesktopToolsUpdateResult } from '../apps/desktop/src/desktop-tools-types.ts'
+import type { DesktopDiagnostics, DesktopModelSelection, DesktopToolsConfig, DesktopToolsSnapshot, DesktopToolsUpdateResult } from '../apps/desktop/src/desktop-tools-types.ts'
+import { DiagnosticsPanel } from './DiagnosticsPanel.tsx'
+import { SelectionActionsEditor } from './SelectionActionsEditor.tsx'
+import { fillDiagnosticText } from '../apps/desktop/src/desktop-diagnostics.ts'
 import type { en } from './locales.ts'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { IconChevronDownOutlineRegular, Menu, Switch, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -20,7 +23,9 @@ export interface DesktopToolsSettingsServices {
   /** 安装或启用前置插件 dsh-vision-router。 */
   installVision(): Promise<RemoteResult<{ readonly snapshot: DesktopToolsSnapshot; readonly restartRequired: boolean }>>
   /** 立即打开截图、录屏或长截图。 */
-  openCapture(mode: 'image' | 'video' | 'long'): Promise<RemoteResult<{ readonly opened: true }>>
+  openCapture(mode: 'image' | 'video' | 'long' | 'pins'): Promise<RemoteResult<{ readonly opened: true }>>
+  /** 逐项检查运行环境。 */
+  diagnose(): Promise<RemoteResult<DesktopDiagnostics>>
   /** DSH「模型」设置中当前可用的服务商与模型；宿主不可用时返回 undefined。 */
   modelCatalog(): Promise<ModelCatalog | undefined>
 }
@@ -52,7 +57,7 @@ function languageChoice(value: string): string {
 }
 
 /** 可录制的全局快捷键字段。 */
-type ShortcutField = 'screenshot.shortcut' | 'screenshot.longShortcut' | 'recording.shortcut'
+type ShortcutField = 'screenshot.shortcut' | 'screenshot.longShortcut' | 'screenshot.pinsShortcut' | 'recording.shortcut'
 
 const KEY_NAMES: Readonly<Record<string, string>> = {
   Space: 'Space', Enter: 'Return', Tab: 'Tab', Backspace: 'Backspace', Delete: 'Delete', Insert: 'Insert', Home: 'Home', End: 'End',
@@ -89,7 +94,7 @@ export type DesktopToolsSettingsProps = PropsRuntime<'settings.section'>
   & PropsLocale<'desktopTools'>
   & InjectFace<DesktopToolsSettingsInjected>
 
-const tabs = ['selection', 'floating', 'screenshot', 'recording'] as const
+const tabs = ['selection', 'floating', 'screenshot', 'recording', 'diagnostics'] as const
 type Tab = typeof tabs[number]
 
 function statusLabel(phase: string, t: Copy): string {
@@ -260,6 +265,13 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
     setSnapshot(result.value.snapshot)
     setDraft(result.value.snapshot.config)
     setPending(!result.value.applied)
+    const failures = result.value.shortcutFailures ?? []
+    if (result.value.applied && failures.length > 0) {
+      // 功能已生效但快捷键没注册上，不能只提示「已保存并生效」。
+      const list = failures.map(item => `${acceleratorLabel(item.accelerator, result.value.snapshot.platform)}（${t(item.reason === 'occupied' ? 'shortcutOccupied' : 'shortcutInvalidReason')}）`).join('、')
+      setMessage(fillDiagnosticText(t('savedShortcutFailed'), { list }))
+      return
+    }
     setMessage(result.value.applied ? t('saved') : t('pending'))
   }
 
@@ -276,7 +288,7 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
   }
 
   const setFeature = (feature: Tab, enabled: boolean): void => {
-    if (draft === undefined) return
+    if (draft === undefined || feature === 'diagnostics') return
     if (feature === 'selection') setDraft({ ...draft, selection: { ...draft.selection, enabled } })
     else if (feature === 'floating') setDraft({ ...draft, floatingBall: { ...draft.floatingBall, enabled } })
     else if (feature === 'screenshot') setDraft({ ...draft, screenshot: { ...draft.screenshot, enabled } })
@@ -290,10 +302,12 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
     if (draft === undefined) return
     if (field === 'screenshot.shortcut') setDraft({ ...draft, screenshot: { ...draft.screenshot, shortcut: value } })
     else if (field === 'screenshot.longShortcut') setDraft({ ...draft, screenshot: { ...draft.screenshot, longShortcut: value } })
+    else if (field === 'screenshot.pinsShortcut') setDraft({ ...draft, screenshot: { ...draft.screenshot, pinsShortcut: value } })
     else setDraft({ ...draft, recording: { ...draft.recording, shortcut: value } })
   }
   const shortcutValue = (field: ShortcutField): string => draft === undefined ? '' : field === 'screenshot.shortcut' ? draft.screenshot.shortcut
-    : field === 'screenshot.longShortcut' ? draft.screenshot.longShortcut : draft.recording.shortcut
+    : field === 'screenshot.longShortcut' ? draft.screenshot.longShortcut
+      : field === 'screenshot.pinsShortcut' ? draft.screenshot.pinsShortcut : draft.recording.shortcut
   const captureShortcut = (event: KeyboardEvent): void => {
     if (event.key === 'Escape') { event.preventDefault(); setCapturing(undefined); return }
     if (/^(Control|Alt|Shift|Meta)$/u.test(event.key)) return
@@ -371,12 +385,13 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
   const enableKey = tab === 'selection' ? 'enableSelection' : tab === 'floating' ? 'enableFloating' : tab === 'screenshot' ? 'enableScreenshot' : 'enableRecording'
   const languageOptions: MenuItem[] = [...LANGUAGES.map(([id, label]) => ({ id, label })), { id: OTHER_LANGUAGE, label: t('otherLanguage') }]
   const permissionText = (right: 'screen' | 'accessibility'): string => permissions?.[right] === true ? t('permissionGranted') : permissions?.[right] === false ? t('permissionDenied') : t('permissionUnknown')
-  const shortcutRow = (field: ShortcutField): ReactNode => <Row key={field} title={t(field === 'screenshot.longShortcut' ? 'longShortcut' : 'shortcut')}
-    description={capturing === field ? t('recordingShortcut') : t('shortcutDescription')}>
+  const shortcutRow = (field: ShortcutField): ReactNode => <Row key={field}
+    title={t(field === 'screenshot.longShortcut' ? 'longShortcut' : field === 'screenshot.pinsShortcut' ? 'pinsShortcut' : 'shortcut')}
+    description={capturing === field ? t('recordingShortcut') : field === 'screenshot.pinsShortcut' ? t('pinsShortcutDescription') : t('shortcutDescription')}>
     <kbd className="inline-flex h-9 min-w-[58px] items-center justify-center rounded-[var(--dsw-radius-md)] bg-[var(--dsw-alias-bg-module-platform)] px-3 font-[inherit] text-sm">{acceleratorLabel(shortcutValue(field), snapshot?.platform)}</kbd>
     <button type="button" className={BUTTON_CLASS} onClick={() => setCapturing(capturing === field ? undefined : field)}>{capturing === field ? t('cancelRecording') : t('recordShortcut')}</button>
     {shortcutValue(field) !== '' && <button type="button" className={BUTTON_CLASS} onClick={() => setShortcut(field, '')}>{t('clearShortcut')}</button>}
-    <button type="button" className={BUTTON_CLASS} disabled={active?.phase !== 'active'} onClick={() => { void services.openCapture(field === 'recording.shortcut' ? 'video' : field === 'screenshot.longShortcut' ? 'long' : 'image') }}>{t('tryNow')}</button>
+    <button type="button" className={BUTTON_CLASS} disabled={active?.phase !== 'active'} onClick={() => { void services.openCapture(field === 'recording.shortcut' ? 'video' : field === 'screenshot.longShortcut' ? 'long' : field === 'screenshot.pinsShortcut' ? 'pins' : 'image') }}>{field === 'screenshot.pinsShortcut' ? t('openPins') : t('tryNow')}</button>
   </Row>
 
   return <section className="flex min-w-0 flex-col gap-3 text-[var(--dsw-alias-label-primary)]" aria-busy={busy}>
@@ -403,9 +418,12 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
     </div>
 
     <div id="desktop-tools-panel" role="tabpanel" aria-labelledby={`desktop-tools-tab-${tab}`} className="flex min-w-0 flex-col pt-0.5">
-      <Row title={t(enableKey)} description={enabled ? statusLabel(active?.phase ?? 'disabled', t) : t('featureDisabled')} alert={active?.phase === 'error' && active.error ? active.error : undefined}>
+      {tab !== 'diagnostics' && <Row title={t(enableKey)} description={enabled ? statusLabel(active?.phase ?? 'disabled', t) : t('featureDisabled')} alert={active?.phase === 'error' && active.error ? active.error : undefined}>
         <Switch checked={enabled} disabled={busy} label={t(enableKey)} onChange={next => setFeature(tab, next)} />
-      </Row>
+      </Row>}
+
+      {tab === 'diagnostics' && <DiagnosticsPanel t={t} services={services} onChanged={() => { void load() }}
+        buttonClass={BUTTON_CLASS} primaryButtonClass={PRIMARY_BUTTON_CLASS} rowClass={ROW_CLASS} />}
 
       {tab === 'selection' && <>
         <Row title={t('language')} description={t('languageDescription')}>
@@ -425,6 +443,9 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
           <Switch checked={draft.selection.model !== undefined} disabled={busy} label={t('customModel')} onChange={setSelectionModelEnabled} />
         </Row>
         {draft.selection.model !== undefined && <ModelRows value={draft.selection.model} disabled={busy} t={t} catalog={catalog} onChange={value => setModel('selection', value)} />}
+        <SelectionActionsEditor t={t} disabled={busy} value={draft.selection}
+          onChange={value => setDraft({ ...draft, selection: { ...draft.selection, customActions: value.customActions, toolbarItems: value.toolbarItems } })}
+          rowClass={ROW_CLASS} buttonClass={BUTTON_CLASS} primaryButtonClass={PRIMARY_BUTTON_CLASS} inputClass={INPUT_CLASS} />
       </>}
 
       {tab === 'floating' && <>
@@ -457,6 +478,7 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
       {tab === 'screenshot' && <>
         {shortcutRow('screenshot.shortcut')}
         {shortcutRow('screenshot.longShortcut')}
+        {shortcutRow('screenshot.pinsShortcut')}
         <Row title={t('visionTitle')} description={<>{t('visionDescription')}<br />{t(snapshot?.vision.state === 'ready' ? 'visionStateReady' : snapshot?.vision.state === 'missing' ? 'visionStateMissing' : snapshot?.vision.state === 'disabled' ? 'visionStateDisabled' : snapshot?.vision.state === 'tool-off' ? 'visionStateToolOff' : 'visionStateUnknown')}</>}>
           {snapshot?.vision.state !== 'ready' && snapshot?.vision.state !== 'tool-off'
             && <button type="button" disabled={installing} className={PRIMARY_BUTTON_CLASS} onClick={() => { void installVision() }}>{installing ? t('visionInstalling') : snapshot?.vision.state === 'disabled' ? t('visionEnable') : t('visionInstall')}</button>}

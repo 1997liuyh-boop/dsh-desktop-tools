@@ -1,4 +1,4 @@
-import { n as readDesktopToolsConfig, r as writeDesktopToolsConfig } from "./desktop-tools-config-CoArygqo.js";
+import { i as writeDesktopToolsConfig, r as readDesktopToolsConfig } from "./desktop-tools-config-A_wdY9X1.js";
 import { BrowserWindow, Menu, screen, systemPreferences } from "electron";
 // source/apps/desktop/src/floating-agent-menu.ts
 const CURRENT_MODEL_MARK = "✓ ";
@@ -120,6 +120,11 @@ function floatingContextMenuTemplate(params, messages, onOpenMain, actions, agen
 			enabled: actions.wechatEnabled(),
 			click: actions.wechat
 		},
+		...actions.pins === void 0 ? [] : [{
+			label: messages.capturePinsManage,
+			enabled: actions.pinsEnabled?.() ?? true,
+			click: actions.pins
+		}],
 		{ type: "separator" },
 		{
 			label: messages.floatingOpenMain,

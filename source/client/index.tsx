@@ -8,7 +8,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import { DesktopToolsSettings, type DesktopToolsSettingsServices, type ModelCatalog } from './DesktopToolsSettings.tsx'
 import { en, zh } from './locales.ts'
 import desktopToolsCss from './desktop-tools.tw.css?inline'
-import type { DesktopToolsConfig, DesktopToolsSnapshot, DesktopToolsUpdateResult } from '../apps/desktop/src/desktop-tools-types.ts'
+import type { DesktopDiagnostics, DesktopToolsConfig, DesktopToolsSnapshot, DesktopToolsUpdateResult } from '../apps/desktop/src/desktop-tools-types.ts'
 import remote from '../apps/desktop/native-extension-runtime/remote.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -19,8 +19,9 @@ interface DesktopToolsRemote {
   snapshot(): Promise<RemoteResult<DesktopToolsSnapshot>>
   update(config: DesktopToolsConfig): Promise<RemoteResult<DesktopToolsUpdateResult>>
   restart(): Promise<RemoteResult<DesktopToolsSnapshot>>
-  openCapture(mode: 'image' | 'video' | 'long'): Promise<RemoteResult<{ readonly opened: true }>>
+  openCapture(mode: 'image' | 'video' | 'long' | 'pins'): Promise<RemoteResult<{ readonly opened: true }>>
   installVision(): Promise<RemoteResult<{ readonly snapshot: DesktopToolsSnapshot; readonly restartRequired: boolean }>>
+  diagnose(): Promise<RemoteResult<DesktopDiagnostics>>
   avatar(): Promise<RemoteResult<{ readonly dataUrl?: string; readonly defaultDataUrl?: string }>>
   setAvatar(dataUrl: string, fileName: string): Promise<RemoteResult<{ readonly saved: boolean; readonly applied: boolean; readonly error?: string }>>
   restoreAvatar(): Promise<RemoteResult<{ readonly saved: boolean; readonly applied: boolean; readonly error?: string }>>
@@ -64,6 +65,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       openSystemPermission: right => tools().openSystemPermission(right),
       installVision: () => tools().installVision(),
       openCapture: mode => tools().openCapture(mode),
+      diagnose: () => tools().diagnose(),
       async modelCatalog() {
         if (sessionRemote === undefined) return undefined
         const result = await sessionRemote.modelCatalog()

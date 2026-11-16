@@ -91,6 +91,8 @@ export const DESKTOP_IPC = {
   selectionSetLanguage: 'dsh-desktop:selection-set-language',
   selectionInteract: 'dsh-desktop:selection-interact',
   selectionSetContentSize: 'dsh-desktop:selection-set-content-size',
+  /** 划词工具栏读取按配置顺序显示的按钮。 */
+  selectionItems: 'dsh-desktop:selection-items',
   selectionState: 'dsh-desktop:selection-state',
   orbSupported: 'dsh-desktop:orb-supported',
   orbSnapshot: 'dsh-desktop:orb-snapshot',
@@ -143,7 +145,10 @@ export interface DshDesktopApi {
   readonly selection: {
     search(): Promise<unknown>
     translate(): Promise<unknown>
-    action(action: 'translate' | 'explain' | 'note' | 'wechat'): Promise<unknown>
+    /** 内置动作，或 `custom:<id>` 形式的自定义动作。 */
+    action(action: string): Promise<unknown>
+    /** 按配置顺序显示的工具栏按钮。 */
+    items(): Promise<readonly { readonly id: string; readonly label?: string }[]>
     result(operation: string, input?: object): Promise<SelectionResultResponse>
     onResultState(listener: (state: unknown) => void): () => void
     sendToAgent(): Promise<unknown>

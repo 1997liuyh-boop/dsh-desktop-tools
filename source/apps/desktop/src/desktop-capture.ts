@@ -12,13 +12,20 @@ import type { DesktopMessages } from './locale.ts'
 import type { DesktopRecordingFormat, DesktopToolsConfig, DesktopVisionStatus } from './desktop-tools-types.ts'
 import { captureScroller } from './capture-native-input.ts'
 import { writeClipboardPng } from './clipboard-compat.ts'
-import { composeSelectionTranslatePrompt, DESKTOP_SELECTION_PREAMBLE } from './selection-prompt.ts'
+import { PinStore, type PinBounds, type StoredPin } from './capture-pin-store.ts'
+import { composeCaptureAskPrompt, composeSelectionTranslatePrompt, DESKTOP_SELECTION_PREAMBLE } from './selection-prompt.ts'
 import { SelectionSessionTask, submitSelectionPrompt, type SelectionSessionTransport, type SelectionTaskState } from './selection-session.ts'
 
 /** 采集界面的初始模式。 */
 export type CaptureMode = 'image' | 'video' | 'long'
-/** 截图识别后的处理方式。 */
-type AnalyzeKind = 'ocr' | 'translate' | 'graph'
+/** 截图识别后的处理方式；ask 为直接对截图提问。 */
+type AnalyzeKind = 'ocr' | 'translate' | 'graph' | 'ask'
+
+/** 模型不接收图片时宿主返回的错误特征。 */
+const NO_VISION_ERROR = /image|attachment|MODEL_DOES_NOT_SUPPORT/iu
+/** 提问时随问题附带的历史问答轮数，以及问题长度上限。 */
+const ASK_HISTORY_TURNS = 3
+const ASK_MAX_QUESTION = 2000
 
 interface CaptureEntry {
   window: BrowserWindow
@@ -40,7 +47,38 @@ interface CaptureEntry {
   settle(path: string | undefined): void
 }
 
-interface PinEntry { window: BrowserWindow; png: Buffer; width: number; height: number; scale: number }
+interface PinEntry {
+  /** 持久化用的钉图 id。 */
+  readonly id: string
+  readonly createdAt: number
+  hidden: boolean
+  window: BrowserWindow
+  png: Buffer
+  width: number
+  height: number
+  scale: number
+  /** 钉图管理窗使用的缩略图（data URL），首次需要时生成。 */
+  thumb?: string
+  /** 拖动或缩放后延迟写盘的计时器。 */
+  saveTimer?: ReturnType<typeof setTimeout>
+  /** 用户主动关闭；只有这种关闭才从磁盘删除，进程退出导致的关闭保留钉图。 */
+  closing?: boolean
+}
+
+/** 钉图管理窗展示的一张钉图。 */
+export interface PinSummary {
+  readonly id: string
+  readonly createdAt: number
+  readonly hidden: boolean
+  readonly width: number
+  readonly height: number
+  readonly thumb: string
+}
+
+/** 新钉图的 id，满足钉图目录的命名规则。 */
+function newPinId(): string {
+  return `pin-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
 
 interface ResultEntry {
   window: BrowserWindow
@@ -57,6 +95,14 @@ interface ResultEntry {
   task?: SelectionSessionTask
   state?: SelectionTaskState
   revision: number
+  /** 截图提问：当前问题。 */
+  question?: string
+  /** 截图提问：已完成的问答，按时间顺序。 */
+  history: { readonly question: string; readonly answer: string }[]
+  /** 截图提问改为基于识别文字（长截图或模型不支持图片时）。 */
+  askText: boolean
+  /** 最近一次提问因模型不支持图片而失败。 */
+  noVision: boolean
 }
 
 /** 采集模块向宿主请求的能力。 */
@@ -71,6 +117,8 @@ export interface DesktopCaptureHost {
   readonly transport: SelectionSessionTransport
   currentSessionId(): string | undefined
   showMain(): void
+  /** 钉图数量或显示状态变化时通知宿主（用于刷新托盘菜单中的数量）。 */
+  pinsChanged?(): void
 }
 
 const VIDEO_HEADERS: Readonly<Record<DesktopRecordingFormat, (header: Buffer) => boolean>> = {
@@ -106,6 +154,8 @@ function rectangle(value: unknown): Rectangle | undefined {
 export class DesktopCapture {
   private readonly entries = new Map<number, CaptureEntry>()
   private readonly pins = new Map<number, PinEntry>()
+  /** 钉图管理窗；同一时间只有一个。 */
+  private manager: BrowserWindow | undefined
   private readonly results = new Map<number, ResultEntry>()
   private readonly cleanups = new Set<Promise<void>>()
   private readonly timers = new Set<ReturnType<typeof setTimeout>>()
@@ -113,6 +163,7 @@ export class DesktopCapture {
 
   private get messages(): DesktopMessages { return this.host.messages() }
   private get directory(): string { return join(this.host.directory, 'captures') }
+  private get pinStore(): PinStore { return new PinStore(join(this.host.directory, 'desktop-tools', 'pins')) }
 
   private window(options: Electron.BrowserWindowConstructorOptions): BrowserWindow {
     const window = new BrowserWindow({
@@ -184,7 +235,9 @@ export class DesktopCapture {
       const pin = this.pins.get(event.sender.id)
       const result = this.results.get(event.sender.id)
       const entry = this.entries.get(event.sender.id)
+      const fromManager = this.manager !== undefined && !this.manager.isDestroyed() && this.manager.webContents.id === event.sender.id
       try {
+        if (fromManager) return { ok: true, value: await this.invokeManager(operation, value) }
         if (pin) return { ok: true, value: await this.invokePin(pin, operation, value) }
         if (result) return { ok: true, value: await this.invokeResult(result, operation, value) }
         if (!entry) throw new Error('Unowned capture renderer')
@@ -200,7 +253,8 @@ export class DesktopCapture {
       session.defaultSession.setDisplayMediaRequestHandler(null)
       for (const timer of this.timers) clearTimeout(timer)
       for (const item of [...this.results.values()]) { void item.task?.stop(); item.window.destroy() }
-      for (const item of [...this.pins.values()]) item.window.destroy()
+      if (this.manager !== undefined && !this.manager.isDestroyed()) this.manager.destroy()
+      for (const item of [...this.pins.values()]) { clearTimeout(item.saveTimer); item.window.destroy() }
       for (const entry of [...this.entries.values()]) entry.window.close()
       await Promise.all(this.cleanups)
     }
@@ -209,7 +263,8 @@ export class DesktopCapture {
   /** @param event IPC 调用方。 @returns 是否为本功能拥有的主框架。 */
   owns(event: IpcMainInvokeEvent): boolean {
     const id = event.sender.id
-    return (this.entries.has(id) || this.pins.has(id) || this.results.has(id)) && event.senderFrame === event.sender.mainFrame
+    const manager = this.manager !== undefined && !this.manager.isDestroyed() && this.manager.webContents.id === id
+    return (this.entries.has(id) || this.pins.has(id) || this.results.has(id) || manager) && event.senderFrame === event.sender.mainFrame
   }
 
   private armed(entry: CaptureEntry): boolean {
@@ -390,7 +445,7 @@ export class DesktopCapture {
       }
       case 'analyze': {
         const kind = value.kind
-        if (kind !== 'ocr' && kind !== 'translate' && kind !== 'graph') throw new Error('Unknown analysis')
+        if (kind !== 'ocr' && kind !== 'translate' && kind !== 'graph' && kind !== 'ask') throw new Error('Unknown analysis')
         const frames = Array.isArray(value.frames) ? value.frames.slice(0, MAX_KEYFRAMES) : [value.data]
         const images = frames.map(frame => pngFrom(record(frame).data ?? frame))
         const times = Array.isArray(value.frames) ? value.frames.slice(0, MAX_KEYFRAMES).map(frame => {
@@ -580,8 +635,13 @@ export class DesktopCapture {
     return { shared: true }
   }
 
-  /** 钉图：置顶无边框窗口，可拖动、滚轮缩放，右键菜单复制保存。 */
-  private openPin(png: Buffer, bounds: Rectangle): void {
+  /**
+   * 钉图：置顶无边框窗口，可拖动、滚轮缩放，右键菜单复制保存。
+   * @param png 图片字节。
+   * @param bounds 屏幕位置（DIP）。
+   * @param stored 从磁盘恢复的钉图；缺省表示新钉图，会写入钉图目录。
+   */
+  private openPin(png: Buffer, bounds: Rectangle, stored?: StoredPin): void {
     const image = nativeImage.createFromBuffer(png)
     const size = image.getSize()
     const window = this.window({
@@ -590,15 +650,154 @@ export class DesktopCapture {
     })
     window.setAlwaysOnTop(true, process.platform === 'win32' ? 'pop-up-menu' : 'floating')
     const id = window.webContents.id
-    this.pins.set(id, { window, png, width: size.width, height: size.height, scale: bounds.width / size.width })
-    window.once('closed', () => { this.pins.delete(id) })
+    const pin: PinEntry = {
+      id: stored?.id ?? newPinId(), createdAt: stored?.createdAt ?? Date.now(), hidden: stored?.hidden ?? false,
+      window, png, width: size.width, height: size.height, scale: bounds.width / size.width,
+    }
+    this.pins.set(id, pin)
+    if (stored === undefined) {
+      try {
+        const evicted = this.pinStore.add({ id: pin.id, createdAt: pin.createdAt, bounds, hidden: false }, png)
+        for (const item of this.pins.values()) if (evicted.includes(item.id)) this.closePin(item)
+      } catch (error: unknown) { console.warn('钉图写入磁盘失败，本次只保留在内存中', error) }
+    }
+    window.on('moved', () => { this.persistPinBounds(pin) })
+    window.once('closed', () => {
+      this.pins.delete(id)
+      clearTimeout(pin.saveTimer)
+      // 只有用户主动关闭的钉图才从磁盘删除；DSH 退出、保存设置等导致的关闭保留，下次启动恢复。
+      if (pin.closing === true) {
+        try { this.pinStore.remove(pin.id) } catch (error: unknown) { console.warn('钉图删除失败', error) }
+        this.pinsChanged()
+      }
+    })
     void window.loadURL('dsh-app://shell/capture-pin.html')
+    this.pinsChanged()
+  }
+
+  /** 拖动、缩放后延迟写入新位置，避免拖动过程中频繁写盘。 */
+  private persistPinBounds(pin: PinEntry): void {
+    clearTimeout(pin.saveTimer)
+    pin.saveTimer = setTimeout(() => {
+      if (pin.window.isDestroyed()) return
+      try { this.pinStore.update(pin.id, { bounds: pin.window.getBounds() }) } catch (error: unknown) { console.warn('钉图位置保存失败', error) }
+    }, 400)
+  }
+
+  /** 恢复上次保存的钉图；位置已不在任何屏幕内时移到主屏幕中央。 */
+  restorePins(): void {
+    let stored: StoredPin[]
+    try { stored = this.pinStore.list() } catch (error: unknown) { console.warn('钉图读取失败', error); return }
+    const areas = screen.getAllDisplays().map(display => display.workArea)
+    const primary = screen.getPrimaryDisplay().workArea
+    for (const item of stored) {
+      try {
+        const png = this.pinStore.readImage(item.id)
+        const visible = areas.some(area => item.bounds.x < area.x + area.width - 24 && item.bounds.x + item.bounds.width > area.x + 24
+          && item.bounds.y < area.y + area.height - 24 && item.bounds.y + item.bounds.height > area.y)
+        const width = Math.min(item.bounds.width, primary.width), height = Math.min(item.bounds.height, primary.height)
+        const bounds: PinBounds = visible ? item.bounds
+          : { x: primary.x + Math.round((primary.width - width) / 2), y: primary.y + Math.round((primary.height - height) / 2), width, height }
+        this.openPin(png, bounds, item)
+      } catch (error: unknown) { console.warn('钉图恢复失败', item.id, error) }
+    }
+  }
+
+  /** @returns 当前钉图数量。 */
+  pinCount(): number { return this.pins.size }
+
+  /** @returns 按创建时间排序的钉图摘要，供管理窗展示。 */
+  pinSummaries(): PinSummary[] {
+    return [...this.pins.values()].sort((left, right) => left.createdAt - right.createdAt).map(pin => {
+      pin.thumb ??= nativeImage.createFromBuffer(pin.png).resize({ width: Math.min(240, pin.width) }).toDataURL()
+      return { id: pin.id, createdAt: pin.createdAt, hidden: pin.hidden, width: pin.width, height: pin.height, thumb: pin.thumb }
+    })
+  }
+
+  /** @param hidden 是否隐藏。 @param pin 目标钉图；缺省为全部。 */
+  setPinsHidden(hidden: boolean, pin?: PinEntry): void {
+    for (const item of pin === undefined ? this.pins.values() : [pin]) {
+      if (item.window.isDestroyed()) continue
+      item.hidden = hidden
+      if (hidden) item.window.hide(); else item.window.showInactive()
+      try { this.pinStore.update(item.id, { hidden }) } catch (error: unknown) { console.warn('钉图状态保存失败', error) }
+    }
+    this.pinsChanged()
+  }
+
+  /** 有可见钉图时全部隐藏，否则全部显示（全局快捷键使用）。 */
+  togglePins(): void {
+    this.setPinsHidden([...this.pins.values()].some(pin => !pin.hidden))
+  }
+
+  /** 用户关闭一张钉图：关闭窗口并从磁盘删除。 */
+  private closePin(pin: PinEntry): void {
+    pin.closing = true
+    if (!pin.window.isDestroyed()) pin.window.close()
+  }
+
+  /** 关闭全部钉图并从磁盘删除。 */
+  closeAllPins(): void {
+    for (const pin of [...this.pins.values()]) this.closePin(pin)
+  }
+
+  /** 打开钉图管理窗；已打开时置于最前。 */
+  openPinsManager(): void {
+    // Windows 会阻止后台进程抢焦点，moveTop 保证管理窗至少显示在最前。
+    if (this.manager !== undefined && !this.manager.isDestroyed()) { this.manager.show(); this.manager.moveTop(); this.manager.focus(); return }
+    const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea
+    const width = Math.min(680, area.width - 48), height = Math.min(520, area.height - 48)
+    const window = this.window({
+      x: area.x + Math.round((area.width - width) / 2), y: area.y + Math.round((area.height - height) / 2), width, height,
+      resizable: true, movable: true, alwaysOnTop: false, minWidth: 360, minHeight: 280, frame: false, skipTaskbar: false,
+    })
+    this.manager = window
+    window.once('closed', () => { if (this.manager === window) this.manager = undefined })
+    window.once('ready-to-show', () => { window.show(); window.moveTop(); window.focus() })
+    void window.loadURL('dsh-app://shell/capture-pins.html')
+  }
+
+  /** 钉图变化：刷新管理窗与托盘菜单。 */
+  private pinsChanged(): void {
+    if (this.manager !== undefined && !this.manager.isDestroyed()) {
+      this.manager.webContents.send(DESKTOP_IPC.captureEvent, { type: 'pins-changed', pins: this.pinSummaries() })
+    }
+    this.host.pinsChanged?.()
+  }
+
+  private pinById(id: unknown): PinEntry {
+    const pin = typeof id === 'string' ? [...this.pins.values()].find(item => item.id === id) : undefined
+    if (pin === undefined) throw new Error('钉图不存在')
+    return pin
+  }
+
+  /** 钉图管理窗的操作。 */
+  private async invokeManager(operation: unknown, value: Record<string, unknown>): Promise<unknown> {
+    switch (operation) {
+      case 'pins-init': return this.pinSummaries()
+      case 'pins-show-all': this.setPinsHidden(false); return undefined
+      case 'pins-hide-all': this.setPinsHidden(true); return undefined
+      case 'pins-close-all': this.closeAllPins(); return undefined
+      case 'pins-focus': {
+        const pin = this.pinById(value.id)
+        if (pin.hidden) this.setPinsHidden(false, pin)
+        pin.window.moveTop()
+        return undefined
+      }
+      case 'pins-toggle': { const pin = this.pinById(value.id); this.setPinsHidden(!pin.hidden, pin); return undefined }
+      case 'pins-copy': await writeClipboardPng(this.pinById(value.id).png); return undefined
+      case 'pins-save': await this.savePin(this.pinById(value.id)); return undefined
+      case 'pins-ask': this.openResult('ask', [this.pinById(value.id).png], [], false); return undefined
+      case 'pins-close': this.closePin(this.pinById(value.id)); return undefined
+      case 'pins-window-close': this.manager?.close(); return undefined
+      default: throw new Error('Unknown pins operation')
+    }
   }
 
   private async invokePin(pin: PinEntry, operation: unknown, value: Record<string, unknown>): Promise<unknown> {
     switch (operation) {
       case 'pin-init': {
-        pin.window.showInactive()
+        if (!pin.hidden) pin.window.showInactive()
         return { image: 'data:image/png;base64,' + pin.png.toString('base64'), width: pin.width, height: pin.height }
       }
       case 'pin-bounds': {
@@ -608,6 +807,7 @@ export class DesktopCapture {
         const width = Math.max(24, Math.min(Math.round(pin.width * 4), box.width))
         const height = Math.round(width * pin.height / pin.width)
         pin.window.setBounds({ x: box.x, y: box.y, width, height })
+        this.persistPinBounds(pin)
         return pin.window.getBounds()
       }
       case 'pin-position': return pin.window.getBounds()
@@ -621,12 +821,13 @@ export class DesktopCapture {
           { label: messages.captureCopy, click: () => { void this.invokePin(pin, 'pin-copy', {}) } },
           { label: messages.captureSaveLocal, click: () => { void this.savePin(pin) } },
           { label: messages.capturePinReset, click: () => { this.resetPin(pin) } },
+          { label: messages.capturePinAsk, click: () => { this.openResult('ask', [pin.png], [], false) } },
           { type: 'separator' },
-          { label: messages.capturePinClose, click: () => { pin.window.close() } },
+          { label: messages.capturePinClose, click: () => { this.closePin(pin) } },
         ]).popup({ window: pin.window })
         return undefined
       }
-      case 'pin-close': { pin.window.close(); return undefined }
+      case 'pin-close': { this.closePin(pin); return undefined }
       default: throw new Error('Unknown pin operation')
     }
   }
@@ -637,6 +838,7 @@ export class DesktopCapture {
     const scale = screen.getDisplayMatching(bounds).scaleFactor || 1
     const width = Math.round(pin.width / scale)
     pin.window.setBounds({ x: bounds.x, y: bounds.y, width, height: Math.round(width * pin.height / pin.width) })
+    this.persistPinBounds(pin)
     pin.window.webContents.send(DESKTOP_IPC.captureEvent, { type: 'pin-reset' })
   }
 
@@ -652,7 +854,8 @@ export class DesktopCapture {
   private openResult(kind: AnalyzeKind, images: Buffer[], times: number[], long: boolean): void {
     const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
     const area = display.workArea
-    const width = Math.min(kind === 'graph' ? 760 : 560, area.width - 48), height = Math.min(kind === 'graph' ? 640 : 520, area.height - 48)
+    const width = Math.min(kind === 'graph' ? 760 : kind === 'ask' ? 600 : 560, area.width - 48)
+    const height = Math.min(kind === 'graph' || kind === 'ask' ? 640 : 520, area.height - 48)
     const window = this.window({
       x: area.x + Math.round((area.width - width) / 2), y: area.y + Math.round((area.height - height) / 2), width, height,
       resizable: true, movable: true, alwaysOnTop: false, minWidth: 360, minHeight: 280, frame: false, skipTaskbar: false,
@@ -660,6 +863,7 @@ export class DesktopCapture {
     const id = window.webContents.id
     const entry: ResultEntry = {
       window, kind, images, times, long, text: '', language: this.host.config().selection.targetLanguage, phase: 'vision', revision: 0,
+      history: [], askText: long, noVision: false,
     }
     this.results.set(id, entry)
     window.once('closed', () => {
@@ -668,7 +872,7 @@ export class DesktopCapture {
       void entry.task?.stop().catch((error: unknown) => { console.warn('capture result task stop:', error) })
     })
     void window.loadURL('dsh-app://shell/capture-result.html')
-    window.once('ready-to-show', () => { window.show() })
+    window.once('ready-to-show', () => { window.show(); window.moveTop() })
     void this.analyze(entry)
   }
 
@@ -682,6 +886,7 @@ export class DesktopCapture {
       kind: entry.kind, phase: entry.phase, text: entry.text, language: entry.language, long: entry.long,
       frames: entry.images.length, ...(entry.error === undefined ? {} : { error: entry.error }),
       ...(entry.vision === undefined ? {} : { vision: entry.vision }), ...(entry.state === undefined ? {} : { task: entry.state }),
+      ...(entry.kind === 'ask' ? { question: entry.question ?? '', history: entry.history, askText: entry.askText, noVision: entry.noVision } : {}),
       preview: entry.images.length === 1 && !entry.long ? 'data:image/png;base64,' + (entry.images[0]?.toString('base64') ?? '') : '',
     }
   }
@@ -691,6 +896,8 @@ export class DesktopCapture {
     const revision = ++entry.revision
     const current = (): boolean => revision === entry.revision && !entry.window.isDestroyed()
     delete entry.error; delete entry.state
+    // 对截图提问默认直接发送图片，不需要先识别文字。
+    if (entry.kind === 'ask' && !entry.askText) { entry.phase = 'ready'; this.publish(entry); return }
     entry.phase = 'vision'; this.publish(entry)
     try {
       const vision = await this.visionStatus()
@@ -708,7 +915,8 @@ export class DesktopCapture {
       entry.text = parts.join('\n\n').trim()
       if (entry.text === '') { entry.phase = 'error'; entry.error = this.messages.captureOcrEmpty; this.publish(entry); return }
       entry.phase = 'ready'; this.publish(entry)
-      if (entry.kind !== 'ocr') this.runTask(entry)
+      if (entry.kind === 'ask') { if (entry.question !== undefined) this.runTask(entry) }
+      else if (entry.kind !== 'ocr') this.runTask(entry)
     } catch (error: unknown) {
       if (!current()) return
       entry.phase = 'error'; entry.error = error instanceof Error ? error.message : String(error)
@@ -726,6 +934,14 @@ export class DesktopCapture {
       + `<recognized-text>\n${text}\n</recognized-text>`
   }
 
+  /** 截图提问的提示词：附带最近几轮问答，基于识别文字时附上识别结果。 */
+  private askPrompt(entry: ResultEntry): string {
+    return composeCaptureAskPrompt({
+      question: entry.question ?? '', history: entry.history.slice(-ASK_HISTORY_TURNS),
+      ...(entry.askText ? { recognizedText: entry.text } : {}), chinese: this.host.chinese(),
+    })
+  }
+
   private runTask(entry: ResultEntry): void {
     const revision = entry.revision
     void entry.task?.stop()
@@ -733,10 +949,18 @@ export class DesktopCapture {
       if (revision !== entry.revision) return
       entry.state = state
       entry.phase = 'task'
+      // 模型不接收图片时提示用户改用识别文字提问。
+      if (entry.kind === 'ask' && !entry.askText && state.phase === 'error' && NO_VISION_ERROR.test(state.error ?? '')) entry.noVision = true
       this.publish(entry)
     })
     entry.task = task
     entry.phase = 'task'; this.publish(entry)
+    if (entry.kind === 'ask') {
+      const image = entry.images[0]
+      const images = entry.askText || image === undefined ? [] : [{ type: 'image' as const, mediaType: 'image/png' as const, data: image.toString('base64'), name: 'screenshot.png' }]
+      void task.run(this.askPrompt(entry), this.messages.captureTaskAsk, this.host.currentSessionId(), this.workspace(), this.host.config().selection.model, images)
+      return
+    }
     const prompt = entry.kind === 'translate' ? composeSelectionTranslatePrompt(entry.text, entry.language) : this.graphPrompt(entry.text, entry.times.length > 0)
     const title = entry.kind === 'translate' ? this.messages.captureTaskTranslate : this.messages.captureTaskGraph
     void task.run(prompt, title, this.host.currentSessionId(), this.workspace(), this.host.config().selection.model)
@@ -784,6 +1008,30 @@ export class DesktopCapture {
         entry.kind = kind
         entry.revision += 1
         this.runTask(entry)
+        return undefined
+      }
+      case 'result-ask': {
+        if (entry.kind !== 'ask') throw new Error('Not a question window')
+        const question = typeof value.question === 'string' ? value.question.trim() : ''
+        if (question === '' || question.length > ASK_MAX_QUESTION) throw new Error('Invalid question')
+        // 上一轮已完成时把它记入历史，作为追问的上下文。
+        if (entry.question !== undefined && entry.state?.phase === 'done' && entry.state.text.trim() !== '') {
+          entry.history.push({ question: entry.question, answer: entry.state.text })
+        }
+        entry.question = question
+        entry.noVision = false
+        delete entry.state
+        entry.revision += 1
+        if (entry.askText && entry.text.trim() === '') void this.analyze(entry)
+        else this.runTask(entry)
+        return undefined
+      }
+      case 'result-ask-text': {
+        // 模型不支持图片：改为先识别文字，再用同一个问题提问。
+        if (entry.kind !== 'ask') throw new Error('Not a question window')
+        entry.askText = true
+        entry.noVision = false
+        void this.analyze(entry)
         return undefined
       }
       case 'result-retry': { void this.analyze(entry); return undefined }

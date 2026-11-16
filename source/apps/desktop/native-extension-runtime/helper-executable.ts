@@ -18,13 +18,31 @@ import { dirname, join } from 'node:path'
 export function resolveHelperExecutable(configured: string | undefined, execPath: string, env: NodeJS.ProcessEnv,
   exists: (path: string) => boolean = existsSync): string {
   if (configured) return configured
-  const packaged = exists(join(dirname(execPath), 'resources', 'app.asar'))
-  if (!packaged) return execPath
-  const binary = process.platform === 'win32' ? 'electron.exe' : process.platform === 'darwin' ? join('Electron.app', 'Contents', 'MacOS', 'Electron') : 'electron'
-  const candidates = [env.DSH_DESKTOP_TOOLS_ELECTRON, join(env.DSH_HOME ?? join(homedir(), '.dsh'), 'electron', binary)]
-    .filter((item): item is string => typeof item === 'string' && item.length > 0)
+  if (!isPackagedHost(execPath, exists)) return execPath
+  const candidates = helperExecutableCandidates(env)
   const found = candidates.find(item => exists(item))
   if (found) return found
   throw new Error('当前 DSH 为打包安装，不能直接用宿主程序启动桌面工具辅助进程；请在插件设置 electronExecutable 中填写独立 Electron 的路径，'
     + '或设置环境变量 DSH_DESKTOP_TOOLS_ELECTRON。已尝试：' + candidates.join('、'))
+}
+
+/**
+ * 判断宿主是否为打包安装的 DSH（可执行文件同级 resources 下存在 app.asar）。
+ * @param execPath 宿主可执行文件。
+ * @param exists 文件存在判断（测试可替换）。
+ * @returns 打包安装时为 true，裸 Electron 开发模式为 false。
+ */
+export function isPackagedHost(execPath: string, exists: (path: string) => boolean = existsSync): boolean {
+  return exists(join(dirname(execPath), 'resources', 'app.asar'))
+}
+
+/**
+ * 打包安装时依次尝试的独立 Electron 路径。
+ * @param env 环境变量。
+ * @returns DSH_DESKTOP_TOOLS_ELECTRON（如有）与 $DSH_HOME/electron 下的可执行文件。
+ */
+export function helperExecutableCandidates(env: NodeJS.ProcessEnv): string[] {
+  const binary = process.platform === 'win32' ? 'electron.exe' : process.platform === 'darwin' ? join('Electron.app', 'Contents', 'MacOS', 'Electron') : 'electron'
+  return [env.DSH_DESKTOP_TOOLS_ELECTRON, join(env.DSH_HOME ?? join(homedir(), '.dsh'), 'electron', binary)]
+    .filter((item): item is string => typeof item === 'string' && item.length > 0)
 }

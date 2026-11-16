@@ -5,6 +5,8 @@ import type {
   DesktopModelSelection,
   DesktopRecordingFormat,
   DesktopRecordingQuality,
+  DesktopSelectionBuiltinItem,
+  DesktopSelectionCustomAction,
   DesktopToolsConfig,
 } from './desktop-tools-types.ts'
 
@@ -38,6 +40,51 @@ export function isDesktopAccelerator(value: string): boolean {
 
 export const DESKTOP_TOOLS_CONFIG_FILE = 'desktop-tools.json'
 
+/** 划词工具栏内置按钮，顺序即旧版本固定的显示顺序。 */
+export const SELECTION_BUILTIN_ITEMS: readonly DesktopSelectionBuiltinItem[] = ['search', 'translate', 'note', 'wechat', 'explain', 'send-to-agent']
+/** 首次安装和旧配置使用的工具栏按钮。 */
+export const DEFAULT_SELECTION_TOOLBAR_ITEMS: readonly string[] = SELECTION_BUILTIN_ITEMS
+/** 自定义划词动作的数量与长度上限。 */
+export const SELECTION_CUSTOM_ACTION_LIMITS = { count: 10, name: 20, prompt: 4000 } as const
+/** 工具栏中自定义动作项的前缀。 */
+export const SELECTION_CUSTOM_PREFIX = 'custom:'
+const CUSTOM_ACTION_ID = /^[a-z0-9-]{1,32}$/u
+
+/**
+ * 校验自定义划词动作列表。
+ * @param value 磁盘中的未知值；缺省视为空列表。
+ * @returns 已校验的动作；id 重复、超出数量或长度时抛错。
+ */
+function customActionsField(value: unknown): DesktopSelectionCustomAction[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length > SELECTION_CUSTOM_ACTION_LIMITS.count) throw new Error('自定义划词动作最多 10 个')
+  const seen = new Set<string>()
+  return value.map((item: unknown, index) => {
+    if (!isRecord(item) || typeof item.id !== 'string' || !CUSTOM_ACTION_ID.test(item.id) || seen.has(item.id)) {
+      throw new Error(`自定义划词动作 id 无效: ${String(index)}`)
+    }
+    seen.add(item.id)
+    const name = typeof item.name === 'string' ? item.name.trim() : ''
+    const prompt = typeof item.prompt === 'string' ? item.prompt.trim() : ''
+    if (name === '' || name.length > SELECTION_CUSTOM_ACTION_LIMITS.name || /[\x00-\x1f]/u.test(name)) throw new Error(`自定义划词动作名称无效: ${item.id}`)
+    if (prompt === '' || prompt.length > SELECTION_CUSTOM_ACTION_LIMITS.prompt) throw new Error(`自定义划词动作提示词无效: ${item.id}`)
+    return { id: item.id, name, prompt }
+  })
+}
+
+/**
+ * 校验工具栏按钮列表：去掉重复项，丢弃未知按钮和已删除的自定义动作。
+ * @param value 磁盘中的未知值；缺省时使用全部内置按钮。
+ * @param actions 已校验的自定义动作。
+ * @returns 按显示顺序排列的按钮 id。
+ */
+function toolbarItemsField(value: unknown, actions: readonly DesktopSelectionCustomAction[]): string[] {
+  if (value === undefined) return [...DEFAULT_SELECTION_TOOLBAR_ITEMS]
+  if (!Array.isArray(value)) throw new Error('划词工具栏按钮列表无效')
+  const known = new Set<string>([...SELECTION_BUILTIN_ITEMS, ...actions.map(action => SELECTION_CUSTOM_PREFIX + action.id)])
+  return [...new Set(value.filter((item): item is string => typeof item === 'string' && known.has(item)))]
+}
+
 const DEFAULT_MODEL: DesktopModelSelection = {
   provider: 'deepseek-official',
   model: 'deepseek-flash',
@@ -51,6 +98,8 @@ export function defaultDesktopToolsConfig(platform: NodeJS.Platform = process.pl
       enabled: true,
       targetLanguage: 'en',
       compatibilityCopy: true,
+      customActions: [],
+      toolbarItems: [...DEFAULT_SELECTION_TOOLBAR_ITEMS],
     },
     floatingBall: {
       enabled: true,
@@ -59,7 +108,7 @@ export function defaultDesktopToolsConfig(platform: NodeJS.Platform = process.pl
       permissionPreset: 'danger-full-access',
       coordinateMode: platform === 'win32' ? 'millifraction' : 'pixel',
     },
-    screenshot: { enabled: false, shortcut: DEFAULT_SCREENSHOT_SHORTCUT, longShortcut: '' },
+    screenshot: { enabled: false, shortcut: DEFAULT_SCREENSHOT_SHORTCUT, longShortcut: '', pinsShortcut: '' },
     recording: {
       enabled: false, shortcut: DEFAULT_RECORDING_SHORTCUT, format: 'mp4', quality: 'hd',
       systemAudio: platform !== 'linux', microphone: false, knowledgeGraph: false,
@@ -131,12 +180,15 @@ export function parseDesktopToolsConfig(value: unknown): DesktopToolsConfig {
   }
   const coordinateMode = floatingBall.coordinateMode
   if (coordinateMode !== 'millifraction' && coordinateMode !== 'pixel') throw new Error('悬浮球坐标模式无效')
+  const customActions = customActionsField(selection.customActions)
   return {
     selection: {
       enabled: booleanField(selection, 'enabled'),
       targetLanguage,
       compatibilityCopy: booleanField(selection, 'compatibilityCopy'),
       ...(selection.model === undefined ? {} : { model: modelField(selection.model, 'selection.model') }),
+      customActions,
+      toolbarItems: toolbarItemsField(selection.toolbarItems, customActions),
     },
     floatingBall: {
       enabled: booleanField(floatingBall, 'enabled'),
@@ -149,6 +201,7 @@ export function parseDesktopToolsConfig(value: unknown): DesktopToolsConfig {
       enabled: booleanField(screenshot, 'enabled'),
       shortcut: shortcutField(screenshot, 'shortcut', DEFAULT_SCREENSHOT_SHORTCUT),
       longShortcut: shortcutField(screenshot, 'longShortcut', ''),
+      pinsShortcut: shortcutField(screenshot, 'pinsShortcut', ''),
     },
     recording: {
       enabled: booleanField(recording, 'enabled'),

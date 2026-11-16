@@ -7,6 +7,8 @@ import { startSelectionMonitor } from './selection-monitor.ts'
 import {
   composeSelectionTranslatePrompt,
   selectionSearchUrl,
+  selectionToolbarItems,
+  type SelectionToolbarItem,
   type SelectionTranslateLanguage,
 } from './selection-prompt.ts'
 import {
@@ -22,6 +24,7 @@ import {
   type SelectionToolbarConfig,
 } from './selection-toolbar-config.ts'
 import type { OrbAgentModelSelection } from './orb-agent-models.ts'
+import type { DesktopSelectionCustomAction } from './desktop-tools-types.ts'
 
 
 export const SELECTION_DEDUPE_MS = 3_000
@@ -39,8 +42,8 @@ export interface SelectionToolbarHost {
   openExternal(url: string): Promise<void>
 
   promptOverlay(text: string): void
-  openResult?(action: 'translate' | 'explain' | 'note' | 'wechat', text: string, language: string,
-    anchor: { readonly x: number; readonly y: number }): void
+  openResult?(action: 'translate' | 'explain' | 'note' | 'wechat' | 'custom', text: string, language: string,
+    anchor: { readonly x: number; readonly y: number }, custom?: DesktopSelectionCustomAction): void
 
   attachOverlay(text: string): void
 
@@ -162,7 +165,13 @@ export class SelectionToolbarController {
     if (this.toolbar === undefined || this.toolbar.isDestroyed()) return
     this.toolbar.webContents.send(DESKTOP_IPC.selectionState, {
       language: this.config.translateTargetLanguage,
+      items: this.toolbarItems(),
     })
+  }
+
+  /** @returns 工具栏按配置顺序显示的按钮。 */
+  toolbarItems(): SelectionToolbarItem[] {
+    return selectionToolbarItems(this.config)
   }
 
 
@@ -237,10 +246,20 @@ export class SelectionToolbarController {
     else this.promptSelection(composeSelectionTranslatePrompt(this.lastText, this.config.translateTargetLanguage))
   }
 
-  /** 打开当前选区所属的独立结果框，不切换主聊天。 */
-  openResult(action: 'translate' | 'explain' | 'note' | 'wechat'): void {
+  /**
+   * 打开当前选区所属的独立结果框，不切换主聊天。
+   * @param action 内置动作，或 `custom:<id>` 形式的自定义动作。
+   * @throws 自定义动作不存在或已从工具栏移除时拒绝。
+   */
+  openResult(action: 'translate' | 'explain' | 'note' | 'wechat' | `custom:${string}`): void {
     if (this.lastText === '') return
-    this.host.openResult?.(action, this.lastText, this.config.translateTargetLanguage, this.resultAnchor)
+    if (action.startsWith('custom:')) {
+      const custom = this.config.customActions.find(item => `custom:${item.id}` === action)
+      if (custom === undefined || !this.config.toolbarItems.includes(action)) throw new Error('自定义划词动作不存在')
+      this.host.openResult?.('custom', this.lastText, this.config.translateTargetLanguage, this.resultAnchor, custom)
+    } else {
+      this.host.openResult?.(action as 'translate' | 'explain' | 'note' | 'wechat', this.lastText, this.config.translateTargetLanguage, this.resultAnchor)
+    }
     hideSelectionToolbar(this.toolbar)
   }
 
@@ -257,12 +276,8 @@ export class SelectionToolbarController {
 
   /** 保存或清除划词任务固定使用的模型。 */
   setModel(selection: OrbAgentModelSelection | undefined): void {
-    const { enabled, translateTargetLanguage, compatibilityCopy } = this.config
-    this.writeConfig({
-      enabled, translateTargetLanguage,
-      ...(compatibilityCopy === undefined ? {} : { compatibilityCopy }),
-      ...(selection === undefined ? {} : { model: selection }),
-    })
+    const { model: _previous, ...rest } = this.config
+    this.writeConfig({ ...rest, ...(selection === undefined ? {} : { model: selection }) })
   }
 
 

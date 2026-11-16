@@ -12,7 +12,7 @@ Use DSH Desktop `>=0.2.2-rc.1 <0.3.0-0`, then add this repository as one plugin:
 https://github.com/1997liuyh-boop/dsh-desktop-tools.git
 ```
 
-Install tag `0.4.11`. The plugin includes its own helper, preload, native feature modules, static assets, and settings page. No separate `dsh-desktop-runtime`, `dsh-selection-toolbar`, `dsh-floating-ball`, or `dsh-capture` package is required.
+Install tag `0.6.0`. The plugin includes its own helper, preload, native feature modules, static assets, and settings page. No separate `dsh-desktop-runtime`, `dsh-selection-toolbar`, `dsh-floating-ball`, or `dsh-capture` package is required.
 
 Installation does not require an Electron `path.txt` file and does not use the `koffi` install script. The helper loads the matching prebuilt Koffi platform package.
 
@@ -49,7 +49,8 @@ Press the shortcut (system-wide, also while DSH is in the background) to open a 
 Screenshot, after you select an area:
 
 - Shape (rectangle / ellipse / line; hold Shift for a square, circle, or 45° steps), pen, arrow, text (text / auto-incrementing numbers), mosaic (brush with adjustable strength), plus color, stroke width, and font size;
-- Pin to desktop (always-on-top window: drag to move, scroll to zoom, double-click or Esc to close, right-click to copy, save, or reset the size);
+- Pin to desktop (always-on-top window: drag to move, scroll to zoom, double-click or Esc to close, right-click to copy, save, reset the size, or ask about the image). Pins are stored in the profile under `desktop-tools/pins/` (up to 30) and come back after saving settings or restarting; closing a pin deletes it. The tray menu **Pins (N)** and the floating ball menu **Manage pins…** show, hide, or close all pins, and the manager window brings a pin to the front, copies, saves, or asks about it. An optional global shortcut shows or hides all pins;
+- Ask: ask about the screenshot in its own window. Answers stream in, follow-up questions carry the last three turns, and quick questions (What is this / Summarize / Find problems) are offered. The image is sent to the current model; if the model cannot read images, one click switches to asking with the text recognized by dsh-vision-router. Long screenshots are answered from recognized text;
 - Long screenshot (starts scrolling capture with the current area);
 - Knowledge graph, Translate, and Extract text (need dsh-vision-router): shown in a separate result window. Translate and Knowledge graph create DSH sessions in the "Screenshots and recordings" workspace; the knowledge graph is a Mermaid diagram plus node and relation lists, saved as Markdown or exported as PNG;
 - Undo (Ctrl/Cmd + Z), Forward (to a new DSH conversation with an optional message, or the system share panel), Save to disk (Ctrl/Cmd + S), Cancel (Esc), Done (copy to clipboard, Enter).
@@ -74,18 +75,19 @@ Platform limits:
 
 ## Replace earlier plugins
 
-If the profile already has any of the four earlier entries, remove `dsh-selection-toolbar`, `dsh-floating-ball`, `dsh-capture`, and `dsh-desktop-runtime` before installing `dsh-desktop-tools@0.4.11`, then restart the Host. The new plugin stores settings in `desktop-tools.json`; it does not import the retired packages' separate settings files. Its defaults enable the selection toolbar and floating assistant, and disable screenshots and recording.
+If the profile already has any of the four earlier entries, remove `dsh-selection-toolbar`, `dsh-floating-ball`, `dsh-capture`, and `dsh-desktop-runtime` before installing `dsh-desktop-tools@0.6.0`, then restart the Host. The new plugin stores settings in `desktop-tools.json`; it does not import the retired packages' separate settings files. Its defaults enable the selection toolbar and floating assistant, and disable screenshots and recording.
 
 ## Settings
 
-The DSH settings panel adds one **Desktop tools** entry with four submenus:
+The DSH settings panel adds one **Desktop tools** entry with five submenus:
 
-- Selection toolbar: enablement, target language, model, and compatibility copy.
+- Selection toolbar: enablement, target language, model, compatibility copy, and the toolbar buttons: turn them on or off, reorder them, and add up to 10 custom actions (a name and a prompt; `{text}` becomes the selected text and `{language}` the target language). Custom actions stream their output in the result window like Translate and Explain.
 - Floating assistant: enablement, avatar, conversation/background models, permission preset, coordinate mode, and system permissions.
 - Screenshot: enablement, the screenshot shortcut (default `Ctrl/Cmd + Shift + S`), an optional long-screenshot shortcut, and dsh-vision-router status with one-click install.
 - Screen recording: enablement, the recording shortcut (default `Ctrl/Cmd + Shift + R`), and default format, quality, system sound, microphone, and knowledge graph.
+- Diagnostics: checks the configuration file, the helper Electron (path and version against DSH), the Koffi native module, the helper process and each tool, global shortcut registration, dsh-vision-router, and macOS system permissions. Each item shows OK, Needs attention, Error, or Not applicable; restarting the helper, installing or enabling dsh-vision-router, and opening system permissions can be done from the item. **Copy report** copies a plain-text report to attach to an issue.
 
-Shortcuts are global; a combination already taken by another program is not registered, so choose another one. Selection and floating assistant are enabled by default. Screenshot and recording are disabled by default. Configuration is stored in the profile's `desktop-tools.json`; each save reports both persistence and actual helper application status.
+Shortcuts are global; a combination already taken by another program is not registered; the Diagnostics tab lists it, so choose another one. Selection and floating assistant are enabled by default. Screenshot and recording are disabled by default. Configuration is stored in the profile's `desktop-tools.json`; each save reports both persistence and actual helper application status.
 
 ## Build
 

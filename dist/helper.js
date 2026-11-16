@@ -1,4 +1,4 @@
-import { n as SCHEME, r as assertDesktopSender, t as DESKTOP_IPC } from "./ipc-DldzT79T.js";
+import { n as SCHEME, r as assertDesktopSender, t as DESKTOP_IPC } from "./ipc-whBK8Kjb.js";
 import { randomUUID } from "node:crypto";
 import { dirname, extname, isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -1007,6 +1007,32 @@ const en = {
 	captureVisionChecking: "Checking dsh-vision-router…",
 	captureTaskTranslate: "Screenshot translation",
 	captureTaskGraph: "Screenshot knowledge graph",
+	captureAsk: "Ask",
+	captureTaskAsk: "Screenshot question",
+	captureResultAsk: "Ask about the screenshot",
+	captureAskPlaceholder: "Ask anything about this image…",
+	captureAskSend: "Ask",
+	captureAskQuickWhat: "What is this?",
+	captureAskQuickSummary: "Summarize the key points",
+	captureAskQuickIssues: "Find problems or mistakes",
+	captureAskYou: "You",
+	captureAskNoVision: "The current model cannot read images.",
+	captureAskUseText: "Ask with recognized text instead",
+	captureAskTextMode: "Answering from text recognized by dsh-vision-router; layout and pictures are not seen.",
+	captureAskLong: "Long screenshots are answered from recognized text.",
+	capturePinAsk: "Ask about this image",
+	capturePins: "Pins ({count})",
+	capturePinsManage: "Manage pins…",
+	capturePinsShowAll: "Show all",
+	capturePinsHideAll: "Hide all",
+	capturePinsCloseAll: "Close all",
+	capturePinsTitle: "Pinned images",
+	capturePinsEmpty: "No pinned images. Use “Pin to desktop” on a screenshot.",
+	capturePinsLocate: "Bring to front",
+	capturePinsShow: "Show",
+	capturePinsHide: "Hide",
+	capturePinsCopy: "Copy",
+	capturePinsSave: "Save",
 	captureResultOcr: "Extracted text",
 	captureResultTranslate: "Translation",
 	captureResultGraph: "Knowledge graph",
@@ -1480,6 +1506,32 @@ const dictionaries = {
 		captureVisionChecking: "正在检查 dsh-vision-router…",
 		captureTaskTranslate: "截图翻译",
 		captureTaskGraph: "截图知识图谱",
+		captureAsk: "提问",
+		captureTaskAsk: "截图提问",
+		captureResultAsk: "对截图提问",
+		captureAskPlaceholder: "问问这张图里的内容…",
+		captureAskSend: "提问",
+		captureAskQuickWhat: "这是什么？",
+		captureAskQuickSummary: "总结要点",
+		captureAskQuickIssues: "找出其中的问题或错误",
+		captureAskYou: "你",
+		captureAskNoVision: "当前模型不能读取图片。",
+		captureAskUseText: "改用识别文字提问",
+		captureAskTextMode: "正在根据 dsh-vision-router 识别出的文字回答，看不到版式和图片。",
+		captureAskLong: "长截图根据识别出的文字回答。",
+		capturePinAsk: "对这张图提问",
+		capturePins: "钉图（{count}）",
+		capturePinsManage: "钉图管理…",
+		capturePinsShowAll: "全部显示",
+		capturePinsHideAll: "全部隐藏",
+		capturePinsCloseAll: "全部关闭",
+		capturePinsTitle: "钉图",
+		capturePinsEmpty: "还没有钉在桌面的图片。截图后点「钉在桌面」即可添加。",
+		capturePinsLocate: "置于最前",
+		capturePinsShow: "显示",
+		capturePinsHide: "隐藏",
+		capturePinsCopy: "复制",
+		capturePinsSave: "保存",
 		captureResultOcr: "提取文字",
 		captureResultTranslate: "翻译",
 		captureResultGraph: "知识图谱",
@@ -3030,10 +3082,11 @@ async function main() {
 					if (!("command" in message) || typeof message.command !== "string" || !("input" in message) || typeof message.input !== "object" || message.input === null) throw new Error("桌面工具命令格式无效");
 					const input = message.input;
 					let value;
-					if (message.command === "capture-open" && "mode" in input && (input.mode === "image" || input.mode === "video" || input.mode === "long")) {
+					if (message.command === "capture-open" && "mode" in input && (input.mode === "image" || input.mode === "video" || input.mode === "long" || input.mode === "pins")) {
 						const capture = features.service("capture");
 						if (capture === void 0) throw new Error("截图录屏功能尚未启用");
-						capture.open(input.mode).catch((error) => {
+						if (input.mode === "pins") capture.pins.manage();
+						else capture.open(input.mode).catch((error) => {
 							console.error("截图录屏启动失败", error);
 						});
 					} else if (message.command === "permissions-status") {
@@ -3043,6 +3096,10 @@ async function main() {
 						const orb = features.service("orb");
 						if (orb === void 0) throw new Error("悬浮球功能尚未启用");
 						value = await orb.openSystemPermission(input.right);
+					} else if (message.command === "shortcuts-status") {
+						const capture = features.service("capture");
+						if (capture === void 0) throw new Error("截图录屏功能尚未启用");
+						value = capture.shortcuts();
 					} else if (message.command === "avatar-refresh") {
 						const orb = features.service("orb");
 						if (orb === void 0) throw new Error("悬浮球功能尚未启用");
@@ -3102,7 +3159,10 @@ async function main() {
 			app.exit(1);
 		});
 	});
-	send({ type: "dsh-native-ready" });
+	send({
+		type: "dsh-native-ready",
+		electron: process.versions.electron
+	});
 }
 app.whenReady().then(main).catch((error) => {
 	console.error(error);

@@ -1,16 +1,22 @@
 /** Host 侧桌面工具配置、功能生命周期与 Remote 接口。 */
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { installOrbAvatarFromBytes, readCustomOrbAvatarDataUrl, restoreOrbAvatar } from '../src/orb-avatar.ts'
 import {
+  DESKTOP_TOOLS_CONFIG_FILE,
   parseDesktopToolsConfig,
   readDesktopToolsConfig,
   writeDesktopToolsConfig,
 } from '../src/desktop-tools-config.ts'
+import { buildDiagnostics, type DiagnosticElectron, type DiagnosticInput } from '../src/desktop-diagnostics.ts'
+import { locateKoffiPlatform } from '../src/koffi-platform.ts'
+import type { CaptureShortcutStatus } from '../src/capture-shortcuts.ts'
 import { captureVisionStatus, installCaptureVision, type CaptureVisionContext } from './capture-vision.ts'
+import { helperExecutableCandidates, isPackagedHost } from './helper-executable.ts'
 import type {
+  DesktopDiagnostics,
   DesktopFeatureId,
   DesktopFeatureStatus,
   DesktopToolsConfig,
@@ -29,10 +35,12 @@ interface DesktopFeatureDescriptor {
 
 interface DesktopRuntime {
   activate(descriptor: DesktopFeatureDescriptor): Promise<() => Promise<void>>
-  command(command: 'capture-open' | 'permissions-status' | 'permission-open' | 'avatar-refresh', input: {
-    readonly mode?: 'image' | 'video' | 'long'
+  command(command: 'capture-open' | 'permissions-status' | 'permission-open' | 'avatar-refresh' | 'shortcuts-status', input: {
+    readonly mode?: 'image' | 'video' | 'long' | 'pins'
     readonly right?: 'screen' | 'accessibility'
   }): Promise<unknown>
+  /** 辅助进程上报的 Electron 版本；未启动时为 undefined。 */
+  helperElectronVersion?(): string | undefined
   dispose(): Promise<void>
 }
 
@@ -41,7 +49,26 @@ interface DesktopToolsControllerOptions {
   readonly profileDir: string
   readonly root: string
   readonly createRuntime: (onFailure: (error: Error) => void) => DesktopRuntime
+  /** 插件设置中显式指定的独立 Electron 路径。 */
+  readonly electronExecutable?: string
+  /** 诊断时使用的宿主信息，测试可替换。 */
+  readonly host?: {
+    readonly execPath?: string
+    readonly env?: NodeJS.ProcessEnv
+    readonly platform?: string
+    readonly exists?: (path: string) => boolean
+  }
 }
+
+/** @param value 辅助进程返回值。 @returns 是否为快捷键注册状态。 */
+function isShortcutStatus(value: unknown): value is CaptureShortcutStatus {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Record<string, unknown>
+  return Array.isArray(record.registered) && Array.isArray(record.failed)
+}
+
+/** @param error 任意异常。 @returns 可展示的错误信息。 */
+function errorText(error: unknown): string { return error instanceof Error ? error.message : String(error) }
 
 const FEATURE_ORDER: readonly DesktopFeatureId[] = ['capture', 'selection', 'floatingBall']
 
@@ -100,7 +127,10 @@ export class DesktopToolsController {
     this.config = config
     try {
       const snapshot = await this.exclusive(() => this.reconcile())
-      return { saved: true, applied: this.isApplied(snapshot), snapshot }
+      const applied = this.isApplied(snapshot)
+      // 功能启动成功不代表快捷键可用：被其他程序占用时只能从辅助进程读到。
+      const failed = applied ? (await this.readShortcuts())?.status?.failed ?? [] : []
+      return { saved: true, applied, snapshot, ...(failed.length === 0 ? {} : { shortcutFailures: failed }) }
     } catch (error: unknown) {
       this.options.ctx.logger.error('桌面工具已保存但应用失败: %s', error instanceof Error ? error.message : String(error))
       return { saved: true, applied: false, snapshot: this.snapshot() }
@@ -112,6 +142,9 @@ export class DesktopToolsController {
 
   /** @returns 重新读取前置视觉插件状态后的快照。 */
   async refreshedSnapshot(): Promise<DesktopToolsSnapshot> {
+    // 辅助进程会直接写入模型、语言等字段；设置页读取时以磁盘为准，避免保存时用旧值覆盖。
+    try { this.config = readDesktopToolsConfig(this.options.profileDir) }
+    catch (error: unknown) { this.options.ctx.logger.warn('桌面工具配置重新读取失败，沿用缓存: %s', errorText(error)) }
     this.vision = await captureVisionStatus(this.options.ctx as unknown as CaptureVisionContext)
     return this.snapshot()
   }
@@ -123,9 +156,91 @@ export class DesktopToolsController {
     return { snapshot: this.snapshot(), restartRequired: result.restartRequired }
   }
 
+  /** @returns 逐项诊断结果与运行环境摘要。 */
+  async diagnose(): Promise<DesktopDiagnostics> {
+    const snapshot = await this.refreshedSnapshot()
+    const host = this.options.host ?? {}
+    const exists = host.exists ?? existsSync
+    const execPath = host.execPath ?? process.execPath
+    const platform = host.platform ?? process.platform
+    const packaged = isPackagedHost(execPath, exists)
+    let configError: string | undefined
+    try { readDesktopToolsConfig(this.options.profileDir) } catch (error: unknown) { configError = errorText(error) }
+    const configured = this.options.electronExecutable
+    let electron: DiagnosticElectron
+    if (configured) electron = { kind: 'configured', path: configured, exists: exists(configured) }
+    else if (!packaged) electron = { kind: 'dev', path: execPath, exists: true }
+    else {
+      const candidates = helperExecutableCandidates(host.env ?? process.env)
+      const found = candidates.find(item => exists(item))
+      electron = found === undefined ? { kind: 'missing', candidates } : { kind: 'found', path: found, exists: true }
+    }
+    const runtime = this.runtime
+    const shortcuts = await this.readShortcuts()
+    let permissions: DiagnosticInput['permissions']
+    if (platform === 'darwin' && runtime !== undefined && this.statuses.get('floatingBall')?.phase === 'active') {
+      try {
+        const value = await runtime.command('permissions-status', {})
+        if (typeof value === 'object' && value !== null) {
+          const record = value as Record<string, unknown>
+          permissions = {
+            ...(typeof record.screen === 'boolean' ? { screen: record.screen } : {}),
+            ...(typeof record.accessibility === 'boolean' ? { accessibility: record.accessibility } : {}),
+          }
+        }
+      } catch { /* 无法读取时对应诊断项标为暂时无法检查。 */ }
+    }
+    const hostElectron = process.versions.electron
+    const helperElectron = runtime?.helperElectronVersion?.()
+    const items = buildDiagnostics({
+      platform,
+      config: { path: join(this.options.profileDir, DESKTOP_TOOLS_CONFIG_FILE), ...(configError === undefined ? {} : { error: configError }) },
+      electron,
+      ...(hostElectron === undefined ? {} : { hostElectron }),
+      ...(helperElectron === undefined ? {} : { helperElectron }),
+      koffi: locateKoffiPlatform(),
+      snapshot,
+      ...(this.runtimeError === undefined ? {} : { runtimeError: this.runtimeError }),
+      ...(shortcuts === undefined ? {} : { shortcuts }),
+      ...(permissions === undefined ? {} : { permissions }),
+    })
+    return {
+      generatedAt: new Date().toISOString(),
+      environment: {
+        plugin: this.pluginVersion(), platform, arch: process.arch, packaged,
+        ...(hostElectron === undefined ? {} : { hostElectron }),
+        ...(helperElectron === undefined ? {} : { helperElectron }),
+      },
+      items,
+    }
+  }
+
+  /** @returns 截图录屏运行时的快捷键注册状态或读取失败原因；未运行时为 undefined。 */
+  private async readShortcuts(): Promise<DiagnosticInput['shortcuts']> {
+    const runtime = this.runtime
+    if (runtime === undefined || this.statuses.get('capture')?.phase !== 'active') return undefined
+    try {
+      const value = await runtime.command('shortcuts-status', {})
+      return isShortcutStatus(value) ? { status: value } : { error: '辅助进程返回的快捷键状态无效' }
+    } catch (error: unknown) { return { error: errorText(error) } }
+  }
+
+  /** @returns 安装包 package.json 中的版本号；读取失败时为 unknown。 */
+  private pluginVersion(): string {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(join(this.options.root, 'package.json'), 'utf8'))
+      if (typeof parsed === 'object' && parsed !== null && typeof (parsed as { version?: unknown }).version === 'string') {
+        return (parsed as { version: string }).version
+      }
+    } catch { /* 版本号只用于报告，读取失败不影响诊断。 */ }
+    return 'unknown'
+  }
+
   /** @param mode 截图、录屏或长截图。 */
-  async openCapture(mode: 'image' | 'video' | 'long'): Promise<void> {
-    const enabled = mode === 'video' ? this.config.recording.enabled : this.config.screenshot.enabled
+  async openCapture(mode: 'image' | 'video' | 'long' | 'pins'): Promise<void> {
+    // 钉图随截图录屏功能恢复，只开录屏时也能管理已有钉图。
+    const enabled = mode === 'pins' ? this.config.screenshot.enabled || this.config.recording.enabled
+      : mode === 'video' ? this.config.recording.enabled : this.config.screenshot.enabled
     if (!enabled) throw new Error(mode === 'video' ? '录屏功能未启用' : '截图功能未启用')
     if (this.statuses.get('capture')?.phase !== 'active' || this.runtime === undefined) throw new Error('截图录屏功能尚未就绪')
     await this.runtime.command('capture-open', { mode })
@@ -290,7 +405,7 @@ export class DesktopToolsController {
 
 /** 通过 Gateway 公开给设置客户端的方法。 */
 const REMOTE_METHODS = [
-  'snapshot', 'installVision', 'update', 'restart', 'openCapture',
+  'snapshot', 'installVision', 'update', 'restart', 'openCapture', 'diagnose',
   'avatar', 'setAvatar', 'restoreAvatar', 'systemPermissions', 'openSystemPermission',
 ] as const
 
@@ -338,8 +453,11 @@ export class DesktopToolsService extends TypertRemoteService {
   /** @returns 重新创建辅助进程后的状态。 */
   restart(): Promise<DesktopToolsSnapshot> { return this.controller.restart() }
 
+  /** @returns 逐项诊断结果与运行环境摘要。 */
+  diagnose(): Promise<DesktopDiagnostics> { return this.controller.diagnose() }
+
   /** @param mode 截图、录屏或长截图。 */
-  async openCapture(mode: 'image' | 'video' | 'long'): Promise<{ readonly opened: true }> {
+  async openCapture(mode: 'image' | 'video' | 'long' | 'pins'): Promise<{ readonly opened: true }> {
     await this.controller.openCapture(mode)
     return { opened: true }
   }
