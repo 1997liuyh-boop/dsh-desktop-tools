@@ -5,6 +5,7 @@ import type PermissionPresetService from '@deepseek-ai/dsh-permission-presets'
 import type { SessionStore } from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import { captureVisionStatus, installCaptureVision, runCaptureOcr, type CapturePluginManager, type CaptureToolsService } from './capture-vision.ts'
+import type { DesktopWidgetMonitor } from './widget-monitor.ts'
 
 /** 原生进程只读取这些官方服务，不依赖桌面主进程的私有扩展。 */
 export interface NativeHostBridgeContext {
@@ -60,9 +61,10 @@ function requestFailure(code: string, message: string): never {
 /** 截图识别图片的 base64 上限，约对应 30 MB PNG。 */
 const MAX_OCR_BASE64 = 40_000_000
 
-async function applyCommand(ctx: NativeHostBridgeContext, body: unknown, signal: AbortSignal): Promise<Response> {
+async function applyCommand(ctx: NativeHostBridgeContext, body: unknown, signal: AbortSignal, widget?: DesktopWidgetMonitor): Promise<Response> {
   if (!isRecord(body) || typeof body.command !== 'string') requestFailure('native/command-invalid', '原生命令格式无效。')
   switch (body.command) {
+    case 'widget-snapshot': return Response.json({ ok: true, value: await widget?.snapshot(false, false) ?? null })
     case 'permission': return applyPermission(ctx, body)
     case 'vision-status': return Response.json({ ok: true, value: await captureVisionStatus(ctx) })
     case 'vision-install': return Response.json({ ok: true, value: await installCaptureVision(ctx) })
@@ -102,7 +104,7 @@ async function applyPermission(ctx: NativeHostBridgeContext, body: Record<string
  * @param send - 将响应发送到本桥所属原生进程的同步发送器。
  * @returns 拥有请求取消和停用清理的桥接器。
  */
-export function createNativeHostBridge(ctx: NativeHostBridgeContext, send: (message: NativeHostMessage) => void): NativeHostBridge {
+export function createNativeHostBridge(ctx: NativeHostBridgeContext, send: (message: NativeHostMessage) => void, widget?: DesktopWidgetMonitor): NativeHostBridge {
   const requests = new Map<string, AbortController>()
   const rpc = ctx.connection.createSharedFetchHandler('/api')
   let disposed = false
@@ -147,7 +149,7 @@ export function createNativeHostBridge(ctx: NativeHostBridgeContext, send: (mess
         signal.throwIfAborted()
         send({ type: 'dsh-native-end', id })
       } else if (path === '/.dsh/native-command') {
-        await respond(id, await applyCommand(ctx, JSON.parse(body), signal), signal)
+        await respond(id, await applyCommand(ctx, JSON.parse(body), signal, widget), signal)
       } else if (RPC_PATHS.has(path)) {
         const response = await rpc.fetch(new Request(`http://dsh-native.local${path}`, {
           method: 'POST', headers: { 'content-type': 'application/json' }, body, signal,

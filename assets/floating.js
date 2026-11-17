@@ -331,7 +331,7 @@ async function main() {
   let dockHoverTimer = undefined
   let dockPointerInside = false
   let suppressExpand = false
-  let skipDockCommit = false
+  let dockRestore
   let pointer = undefined
   let lastOrigin = undefined
   let composing = false
@@ -507,7 +507,6 @@ async function main() {
     if (docked === undefined) return
     if (typeof api.floating.unsnap !== 'function') return
     suppressExpand = true
-    if (dragging) skipDockCommit = true
     applyDocked(undefined)
     applyDockedFrom(await api.floating.unsnap())
   }
@@ -801,7 +800,6 @@ async function main() {
   }
 
   function followProjectSession(id) {
-    if (standaloneRuntime) return
     if (sharedCatalog !== null) return
     const previous = followedSession
     followedSession = typeof id === 'string' ? id : null
@@ -1273,7 +1271,7 @@ async function main() {
     if (eventsClientId === undefined || typeof frame.eventId !== 'string') return
     if (settledEventIds.has(frame.eventId)) return
     const agentId = frame.agentId
-    if (frame.event !== 'user-questions/request' || typeof agentId !== 'string' || !orbSessionIds.has(agentId)) {
+    if (frame.event !== 'user-questions/request' || typeof agentId !== 'string' || (!orbSessionIds.has(agentId) && agentId !== followedSession)) {
       try {
         await replyEvent(eventsClientId, frame.eventId, { kind: 'next' })
       } catch {
@@ -1406,8 +1404,7 @@ async function main() {
       if (dockHoverArmed) void unsnapDocked()
       return
     }
-    if (suppressExpand) return
-    void setExpanded(true)
+    // 聊天由点击打开，悬停只恢复吸边后的悬浮球。
   })
   document.body.addEventListener('pointerleave', () => {
     dockPointerInside = false
@@ -1495,14 +1492,11 @@ async function main() {
         : lastOrigin
       pointer = undefined
       lastOrigin = undefined
-      const skipDock = skipDockCommit
-      skipDockCommit = false
       try {
-        if (!skipDock) {
-          if (!(running || asking() || gatingTcc())) await setExpanded(false, true)
-          if (origin !== undefined) await moveBall(origin.x, origin.y)
-          await clampBall()
-        }
+        await dockRestore
+        if (!(running || asking() || gatingTcc())) await setExpanded(false, true)
+        if (origin !== undefined) await moveBall(origin.x, origin.y)
+        await clampBall()
       } finally {
         collapsing = false
       }
@@ -1544,6 +1538,7 @@ async function main() {
       pinned = false
       document.body.classList.remove('pinned')
     }
+    if (expanded) prompt.focus()
   }
   ball.addEventListener('pointercancel', event => {
     void finishPointer(event)
@@ -1551,6 +1546,20 @@ async function main() {
 
   ball.addEventListener('lostpointercapture', event => {
     void finishPointer(event)
+  })
+
+  api.floating.onWidgetOpen?.(async id => {
+    if (typeof id !== 'string' || id === '') return
+    setHistoryOpen(false)
+    setPermissionOpen(false)
+    if (standaloneRuntime) {
+      followProjectSession(id)
+      await refreshOverlay()
+    } else await requestMainSession('select', id)
+    pinned = true
+    document.body.classList.add('pinned')
+    await setExpanded(true, true)
+    prompt.focus()
   })
 
   dockTab.addEventListener('pointerdown', event => {
@@ -1561,25 +1570,34 @@ async function main() {
     collapsing = false
     skipClick = true
     lastOrigin = undefined
-    pointer = { dx: 0, dy: 0, id: event.pointerId, startX: event.screenX, startY: event.screenY }
-    dockTab.setPointerCapture(event.pointerId)
+    pointer = { dx: 36, dy: 36, id: event.pointerId, startX: event.screenX, startY: event.screenY }
+    // 捕获放在始终可见的 body，细条隐藏后仍能继续拖动。
+    document.body.setPointerCapture(event.pointerId)
   })
-  dockTab.addEventListener('pointermove', event => {
-    if (pointer === undefined || pointer.id !== event.pointerId || docked === undefined) return
+  let dockDragging = false
+  document.body.addEventListener('pointermove', event => {
+    if (pointer === undefined || pointer.id !== event.pointerId || (!dockDragging && docked === undefined)) return
     if (!primaryButtonHeld(event)) {
       void finishPointer(event)
       return
     }
-    lastOrigin = { x: event.screenX, y: event.screenY }
+    lastOrigin = { x: event.screenX - pointer.dx, y: event.screenY - pointer.dy }
+    if (dockDragging) { void moveBall(lastOrigin.x, lastOrigin.y); return }
     const inward = docked === 'right'
       ? pointer.startX - event.screenX
       : event.screenX - pointer.startX
     if (inward <= DOCK_DRAG_OFF_PX) return
     dragging = true
-    void unsnapDocked()
+    dockDragging = true
+    document.body.classList.add('dragging')
+    dockRestore = unsnapDocked().then(() => {
+      if (pointer !== undefined && lastOrigin !== undefined) void moveBall(lastOrigin.x, lastOrigin.y)
+    })
   })
-  dockTab.addEventListener('pointerup', async event => {
+  document.body.addEventListener('pointerup', async event => {
     if (!isPrimaryButton(event) || pointer?.id !== event.pointerId) return
+    if (!dockDragging && docked === undefined) return
+    dockDragging = false
     const dragged = await finishPointer(event)
     skipClick = false
     if (dragged) return
@@ -1587,10 +1605,12 @@ async function main() {
     await unsnapDocked()
     await toggleByClick()
   })
-  dockTab.addEventListener('pointercancel', event => {
+  document.body.addEventListener('pointercancel', event => {
+    dockDragging = false
     void finishPointer(event)
   })
-  dockTab.addEventListener('lostpointercapture', event => {
+  document.body.addEventListener('lostpointercapture', event => {
+    dockDragging = false
     void finishPointer(event)
   })
 

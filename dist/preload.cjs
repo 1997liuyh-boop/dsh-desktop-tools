@@ -57,6 +57,8 @@ const DESKTOP_IPC = {
 	floatingFocusMain: "dsh-desktop:floating-focus-main",
 	floatingQuit: "dsh-desktop:floating-quit",
 	floatingRunning: "dsh-desktop:floating-running",
+	floatingWidgetState: "dsh-desktop:floating-widget-state",
+	floatingWidgetOpen: "dsh-desktop:floating-widget-open",
 	floatingEditing: "dsh-desktop:floating-editing",
 	floatingRestoreFront: "dsh-desktop:floating-restore-front",
 	floatingAvatarGet: "dsh-desktop:floating-avatar-get",
@@ -94,6 +96,26 @@ const DESKTOP_IPC = {
 };
 // source/apps/desktop/src/preload.ts
 const floating = {
+	widgetState: () => electron.ipcRenderer.invoke(DESKTOP_IPC.floatingWidgetState),
+	openWidget: (action) => electron.ipcRenderer.invoke(DESKTOP_IPC.floatingWidgetOpen, action),
+	onWidgetState: (listener) => {
+		const handle = (_event, state) => {
+			listener(state);
+		};
+		electron.ipcRenderer.on(DESKTOP_IPC.floatingWidgetState, handle);
+		return () => {
+			electron.ipcRenderer.off(DESKTOP_IPC.floatingWidgetState, handle);
+		};
+	},
+	onWidgetOpen: (listener) => {
+		const handle = (_event, sessionId) => {
+			listener(sessionId);
+		};
+		electron.ipcRenderer.on(DESKTOP_IPC.floatingWidgetOpen, handle);
+		return () => {
+			electron.ipcRenderer.off(DESKTOP_IPC.floatingWidgetOpen, handle);
+		};
+	},
 	sessionCatalog: () => electron.ipcRenderer.invoke(DESKTOP_IPC.floatingCatalogGet),
 	navigateSession: (request) => electron.ipcRenderer.invoke(DESKTOP_IPC.floatingNavigate, request),
 	onSessionCatalog: (listener) => {

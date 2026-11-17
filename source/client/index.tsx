@@ -16,6 +16,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 interface DesktopToolsRemote {
+  widgetSnapshot(refresh: boolean): Promise<RemoteResult<import('../apps/desktop/src/desktop-tools-types.ts').DesktopWidgetSnapshot>>
   snapshot(): Promise<RemoteResult<DesktopToolsSnapshot>>
   update(config: DesktopToolsConfig): Promise<RemoteResult<DesktopToolsUpdateResult>>
   restart(): Promise<RemoteResult<DesktopToolsSnapshot>>
@@ -59,6 +60,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
   const section = ctx.inject(['remote.desktopTools'], (inner) => {
     const tools = (): DesktopToolsRemote => inner.remote.desktopTools
     const services: DesktopToolsSettingsServices = {
+      widgetSnapshot: refresh => tools().widgetSnapshot(refresh),
       snapshot: () => tools().snapshot(), update: config => tools().update(config),
       restart: () => tools().restart(), avatar: () => tools().avatar(),
       setAvatar: (dataUrl, fileName) => tools().setAvatar(dataUrl, fileName),

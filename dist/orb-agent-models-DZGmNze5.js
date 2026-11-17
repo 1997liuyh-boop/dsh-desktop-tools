@@ -1,5 +1,18 @@
-import { i as writeDesktopToolsConfig, r as readDesktopToolsConfig } from "./desktop-tools-config-C0hCUcBZ.js";
+import { i as writeDesktopToolsConfig, r as readDesktopToolsConfig } from "./desktop-tools-config-3G2LrnvZ.js";
 import { BrowserWindow, Menu, screen, systemPreferences } from "electron";
+// source/apps/desktop/src/floating-snap.ts
+/** 纯几何计算使用屏幕逻辑坐标，兼容负坐标的副屏。 */
+function floatingSnapTarget(ball, bounds, workArea, distance, size = 72) {
+	const left = ball.x - bounds.x, right = bounds.x + bounds.width - ball.x - size;
+	const docked = left <= distance && left <= right ? "left" : right <= distance ? "right" : void 0;
+	const top = ball.y - workArea.y, bottom = workArea.y + workArea.height - ball.y - size;
+	const y = top <= distance && top <= bottom ? workArea.y : bottom <= distance ? workArea.y + workArea.height - size : ball.y;
+	return {
+		x: ball.x,
+		y,
+		...docked ? { docked } : {}
+	};
+}
 // source/apps/desktop/src/floating-agent-menu.ts
 const CURRENT_MODEL_MARK = "✓ ";
 function floatingAgentModelItems(catalog, current, onSelect, labels) {
@@ -423,12 +436,6 @@ function expandState(expanded, direction, docked) {
 		docked
 	};
 }
-function dockSideForBallOrigin(ball, bounds) {
-	const leftOverlap = bounds.x - ball.x;
-	const rightOverlap = ball.x + 72 - (bounds.x + bounds.width);
-	if (leftOverlap >= 14 && leftOverlap >= rightOverlap) return "left";
-	if (rightOverlap >= 14) return "right";
-}
 function dockedTabBounds(side, ballY, bounds) {
 	const y = clamp(Math.round(ballY - 8), bounds.y, bounds.y + bounds.height - 88);
 	return {
@@ -733,7 +740,7 @@ function moveFloatingBall(window, x, y, canDock = true) {
 	window.setBounds(collapsedWindowBounds(origin));
 	return { docked: void 0 };
 }
-async function clampFloatingWindow(window, canDock = true) {
+async function clampFloatingWindow(window, canDock = true, snapDistance = 24) {
 	const bounds = window.getBounds();
 	const display = displayGeometry(windowCenter(bounds));
 	const docked = overlayDock.get(window);
@@ -746,15 +753,17 @@ async function clampFloatingWindow(window, canDock = true) {
 			x: bounds.x + 12,
 			y: bounds.y + 12
 		};
-		if (canDock) {
-			const side = dockSideForBallOrigin(origin, display.bounds);
-			if (side !== void 0) return snapToEdge(window, side, origin.y, display.bounds);
-		}
-		window.setBounds(collapsedWindowBounds(clampedBallOrigin(origin, display.workArea)));
+		const target = canDock ? floatingSnapTarget(origin, display.bounds, display.workArea, snapDistance) : origin;
+		if ("docked" in target && target.docked !== void 0) return snapToEdge(window, target.docked, target.y, display.bounds);
+		window.setBounds(collapsedWindowBounds(clampedBallOrigin(target, display.workArea)));
 		return { docked: void 0 };
 	}
 	setFloatingExpanded(window, true);
 	return { docked: void 0 };
+}
+/** 气泡跟随可见球心，不依赖渲染器提供屏幕坐标。 */
+function floatingBallOrigin(window) {
+	return currentBallOrigin(window, workAreaOf(windowCenter(window.getBounds())));
 }
 async function unsnapDockedBall(window) {
 	const docked = overlayDock.get(window);
@@ -881,4 +890,4 @@ function serializeSelection(selection) {
 		...selection.reasoningEffort === void 0 ? {} : { reasoningEffort: selection.reasoningEffort }
 	};
 }
-export { raiseOverlayAboveObservationFrame as _, applyFloatingOverlayGuard as a, moveFloatingBall as c, resetFloatingOverlayGuard as d, setFloatingExpanded as f, hideObservationFrame as g, createObservationFrameWindow as h, writeOrbAgentModels as i, overlayWindowExcludeIds as l, OVERLAY_ALWAYS_ON_TOP_LEVEL as m, parseOrbAgentModelSelection as n, clampFloatingWindow as o, unsnapDockedBall as p, readOrbAgentModels as r, createFloatingWindow as s, isOrbAgentModelSelection as t, presentOverlayWindow as u, showObservationFrame as v };
+export { hideObservationFrame as _, applyFloatingOverlayGuard as a, floatingBallOrigin as c, presentOverlayWindow as d, resetFloatingOverlayGuard as f, createObservationFrameWindow as g, OVERLAY_ALWAYS_ON_TOP_LEVEL as h, writeOrbAgentModels as i, moveFloatingBall as l, unsnapDockedBall as m, parseOrbAgentModelSelection as n, clampFloatingWindow as o, setFloatingExpanded as p, readOrbAgentModels as r, createFloatingWindow as s, isOrbAgentModelSelection as t, overlayWindowExcludeIds as u, raiseOverlayAboveObservationFrame as v, showObservationFrame as y };

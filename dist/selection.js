@@ -1,8 +1,8 @@
-import { n as SCHEME, t as DESKTOP_IPC } from "./ipc-whBK8Kjb.js";
+import { n as SCHEME, t as DESKTOP_IPC } from "./ipc-rPS0U-Fv.js";
 import { t as loadKoffiPlatform } from "./koffi-platform-C2YCpT9s.js";
 import { c as isSelectionLanguage, d as clipboardTypes, l as selectionSearchUrl, n as selectionRecord, o as composeSelectionCustomPrompt, s as composeSelectionTranslatePrompt, t as SelectionSessionTask, u as selectionToolbarItems } from "./selection-session-M4SY_0MA.js";
-import { m as OVERLAY_ALWAYS_ON_TOP_LEVEL, n as parseOrbAgentModelSelection, t as isOrbAgentModelSelection, u as presentOverlayWindow } from "./orb-agent-models-CfuNtLlv.js";
-import { i as writeDesktopToolsConfig, r as readDesktopToolsConfig } from "./desktop-tools-config-C0hCUcBZ.js";
+import { d as presentOverlayWindow, h as OVERLAY_ALWAYS_ON_TOP_LEVEL, n as parseOrbAgentModelSelection, t as isOrbAgentModelSelection } from "./orb-agent-models-DZGmNze5.js";
+import { i as writeDesktopToolsConfig, r as readDesktopToolsConfig } from "./desktop-tools-config-3G2LrnvZ.js";
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";

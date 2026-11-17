@@ -1,6 +1,7 @@
 
 
 import { BrowserWindow, Menu, screen, systemPreferences } from 'electron'
+import { floatingSnapTarget } from './floating-snap.ts'
 import type { DesktopMessages } from './locale.ts'
 import { floatingContextMenuTemplate, type FloatingAgentMenuSource, type FloatingContextEditState,
   type FloatingMenuActions } from './floating-context-menu.ts'
@@ -680,6 +681,7 @@ export function moveFloatingBall(
 export async function clampFloatingWindow(
   window: BrowserWindow,
   canDock = true,
+  snapDistance = 24,
 ): Promise<FloatingDockState> {
   const bounds = window.getBounds()
   const display = displayGeometry(windowCenter(bounds))
@@ -693,15 +695,18 @@ export async function clampFloatingWindow(
       x: bounds.x + FLOATING_CHROME_INSET,
       y: bounds.y + FLOATING_CHROME_INSET,
     }
-    if (canDock) {
-      const side = dockSideForBallOrigin(origin, display.bounds)
-      if (side !== undefined) return snapToEdge(window, side, origin.y, display.bounds)
-    }
-    window.setBounds(collapsedWindowBounds(clampedBallOrigin(origin, display.workArea)))
+    const target = canDock ? floatingSnapTarget(origin, display.bounds, display.workArea, snapDistance) : origin
+    if ('docked' in target && target.docked !== undefined) return snapToEdge(window, target.docked, target.y, display.bounds)
+    window.setBounds(collapsedWindowBounds(clampedBallOrigin(target, display.workArea)))
     return { docked: undefined }
   }
   setFloatingExpanded(window, true)
   return { docked: undefined }
+}
+
+/** 气泡跟随可见球心，不依赖渲染器提供屏幕坐标。 */
+export function floatingBallOrigin(window: BrowserWindow): { x: number; y: number } {
+  return currentBallOrigin(window, workAreaOf(windowCenter(window.getBounds())))
 }
 
 

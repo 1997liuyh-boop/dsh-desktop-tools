@@ -24,6 +24,18 @@ test('默认配置按用户确认的功能启用状态和平台坐标提供', ()
   assert.equal(macos.floatingBall.coordinateMode, 'pixel')
 })
 
+test('旧配置补齐交互和记账默认值，拒绝无效单价与吸附距离', () => {
+  const config = defaultDesktopToolsConfig()
+  const { edgeSnap, snapDistance, taskBubbles, completionNotifications, ...legacyBall } = config.floatingBall
+  const { accounting, ...legacy } = config
+  const parsed = parseDesktopToolsConfig({ ...legacy, floatingBall: legacyBall })
+  assert.equal(parsed.floatingBall.edgeSnap, true)
+  assert.equal(parsed.floatingBall.snapDistance, 24)
+  assert.deepEqual(parsed.accounting.rates, [])
+  assert.throws(() => parseDesktopToolsConfig({ ...config, floatingBall: { ...config.floatingBall, snapDistance: Infinity } }))
+  assert.throws(() => parseDesktopToolsConfig({ ...config, accounting: { ...config.accounting, rates: [{ model: 'a', provider: 'b', input: -1 }] } }))
+})
+
 test('解析拒绝缺失字段和无效功能配置值', () => {
   const config = defaultDesktopToolsConfig('win32')
 

@@ -33,6 +33,7 @@ import {
 import { applyMillifractionCoordinates } from './millifraction-coordinates-apply.ts'
 import { orbCoordinateModeFor, readMillifractionCoordinates, writeMillifractionCoordinates } from './millifraction-coordinates.ts'
 import { readDesktopToolsConfig } from './desktop-tools-config.ts'
+import { attachFloatingWidget } from './floating-widget.ts'
 import { isTccRight, TccController, type TccRight, type TccStatus } from './tcc.ts'
 import {
   createObservationFrameWindow,
@@ -55,6 +56,7 @@ declare module './desktop-feature-host.ts' {
 
 /** 本扩展声明的协议资源；未安装时桌面不提供这些文件。 */
 export const shellAssets = ['/floating.html', '/floating.js', '/floating.css', '/floating-mentions.css', '/floating-mentions.tw.css',
+  '/floating-status.html', '/floating-status.js', '/floating-status.css',
   '/deepseek-avatar-square.gif', '/observation-frame.html', '/observation-frame.css', '/selection-markdown.js', '/shell-theme.js', '/assets/window-material.css']
 
 /** @param context 当前安装包的原生资源作用域。 @returns 窗口与接口挂载完成。 */
@@ -242,6 +244,7 @@ export async function activate(context: DesktopFeatureContext): Promise<void> {
   floatingWindow.once('ready-to-show', () => { floatingWindow.showInactive() })
   floatingWindow.on('focus', () => { publishTcc() })
   await floatingWindow.loadURL(`${SCHEME}://shell/floating.html`)
+  const widgetWindow = environment.standalone ? await attachFloatingWidget(context, floatingWindow) : undefined
   const ensureObservationFrameWindow = (): void => {
     if (observationFrameWindow !== undefined && !observationFrameWindow.isDestroyed()) return
     observationFrameWindow = context.own(createObservationFrameWindow())
@@ -256,6 +259,7 @@ export async function activate(context: DesktopFeatureContext): Promise<void> {
   const restoreOverlayGuard = (): void => {
     hideObservationFrame(observationFrameWindow)
     if (!floatingShell.isDestroyed()) resetFloatingOverlayGuard(floatingShell)
+    if (widgetWindow && !widgetWindow.isDestroyed()) resetFloatingOverlayGuard(widgetWindow)
     const toolbarWindow = context.service('selection')?.window()
     if (toolbarWindow !== undefined && !toolbarWindow.isDestroyed()) resetFloatingOverlayGuard(toolbarWindow)
     context.service('selection')?.setHidInput(false)
@@ -269,12 +273,13 @@ export async function activate(context: DesktopFeatureContext): Promise<void> {
   orbHostHandlers.onOverlayGuard = (event) => {
     if (floatingShell.isDestroyed()) return []
     applyFloatingOverlayGuard(floatingShell, event.mode, event.action)
+    if (widgetWindow && !widgetWindow.isDestroyed()) applyFloatingOverlayGuard(widgetWindow, event.mode, event.action)
     const toolbarWindow = context.service('selection')?.window()
     if (toolbarWindow !== undefined && !toolbarWindow.isDestroyed()) {
       applyFloatingOverlayGuard(toolbarWindow, event.mode, event.action)
     }
     if (event.mode === 'input') context.service('selection')?.setHidInput(event.action === 'begin')
-    const ids = overlayWindowExcludeIds(floatingShell, toolbarWindow, observationFrameWindow)
+    const ids = overlayWindowExcludeIds(floatingShell, toolbarWindow, observationFrameWindow, widgetWindow)
     if (event.mode === 'input' && event.action === 'begin') {
       blurMainIfFocused()
       try {
@@ -304,12 +309,13 @@ export async function activate(context: DesktopFeatureContext): Promise<void> {
   })
   context.handle(DESKTOP_IPC.floatingMove, (event, x: unknown, y: unknown, canDock: unknown) => {
     shellSender(event)
-    if (typeof x !== 'number' || typeof y !== 'number') throw new Error('dsh desktop: invalid floating move')
+    if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) throw new Error('dsh desktop: invalid floating move')
     return moveFloatingBall(floatingWindow, x, y, canDock !== false)
   })
   context.handle(DESKTOP_IPC.floatingClamp, (event, canDock: unknown) => {
     shellSender(event)
-    return clampFloatingWindow(floatingWindow, canDock !== false)
+    const preferences = readDesktopToolsConfig(paths.profile).floatingBall
+    return clampFloatingWindow(floatingWindow, canDock !== false && preferences.edgeSnap, preferences.snapDistance)
   })
   context.handle(DESKTOP_IPC.floatingUnsnap, (event) => {
     shellSender(event)

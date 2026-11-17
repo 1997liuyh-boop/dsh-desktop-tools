@@ -1,8 +1,8 @@
-import { t as DESKTOP_IPC } from "./ipc-whBK8Kjb.js";
+import { t as DESKTOP_IPC } from "./ipc-rPS0U-Fv.js";
 import { t as loadKoffiPlatform } from "./koffi-platform-C2YCpT9s.js";
 import { a as composeCaptureAskPrompt, f as writeClipboardPng, i as DESKTOP_SELECTION_PREAMBLE, r as submitSelectionPrompt, s as composeSelectionTranslatePrompt, t as SelectionSessionTask } from "./selection-session-M4SY_0MA.js";
 import { n as newHistoryId, t as HistoryStore } from "./capture-history-store-t4vXVh7L.js";
-import { r as readDesktopToolsConfig } from "./desktop-tools-config-C0hCUcBZ.js";
+import { r as readDesktopToolsConfig } from "./desktop-tools-config-3G2LrnvZ.js";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join, resolve } from "node:path";

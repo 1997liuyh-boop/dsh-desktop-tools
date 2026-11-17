@@ -1,5 +1,5 @@
 import { i as installOrbAvatarFromBytes, l as readCustomOrbAvatarDataUrl, u as restoreOrbAvatar } from "./orb-avatar-DgC5zfjx.js";
-import { i as writeDesktopToolsConfig, n as parseDesktopToolsConfig, r as readDesktopToolsConfig, t as DESKTOP_TOOLS_CONFIG_FILE } from "./desktop-tools-config-C0hCUcBZ.js";
+import { i as writeDesktopToolsConfig, n as parseDesktopToolsConfig, r as readDesktopToolsConfig, t as DESKTOP_TOOLS_CONFIG_FILE } from "./desktop-tools-config-3G2LrnvZ.js";
 import { n as locateKoffiPlatform } from "./koffi-platform-C2YCpT9s.js";
 import { t as HistoryStore } from "./capture-history-store-t4vXVh7L.js";
 import { spawn } from "node:child_process";
@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import z from "@deepseek-ai/schemastery";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { Remote, TypertRemoteService } from "@deepseek-ai/dsh-typert-protocol";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -889,6 +889,7 @@ var DesktopToolsController = class {
 /** 通过 Gateway 公开给设置客户端的方法。 */
 const REMOTE_METHODS = [
 	"snapshot",
+	"widgetSnapshot",
 	"installVision",
 	"update",
 	"restart",
@@ -934,15 +935,22 @@ function markRemoteMethods(instance, names) {
 /** 设置客户端使用的桌面工具 Remote 服务。 */
 var DesktopToolsService = class extends TypertRemoteService {
 	controller;
+	widget;
 	/** @param ctx Cordis Host。 @param controller 桌面工具控制器。 */
-	constructor(ctx, controller) {
+	constructor(ctx, controller, widget) {
 		super(ctx, "desktopTools");
 		this.controller = controller;
+		this.widget = widget;
 		markRemoteMethods(this, REMOTE_METHODS);
 	}
 	/** @returns 当前配置与实际运行状态。 */
 	snapshot() {
 		return this.controller.refreshedSnapshot();
+	}
+	/** @returns 当前会话状态、本机用量与账户余额。 */
+	async widgetSnapshot(refresh) {
+		if (!this.widget) throw new Error("任务与记账服务尚未就绪");
+		return this.widget.snapshot(refresh === true);
 	}
 	/** @returns 安装或启用前置插件 dsh-vision-router 的结果。 */
 	installVision() {
@@ -1027,9 +1035,13 @@ function requestFailure(code, message) {
 }
 /** 截图识别图片的 base64 上限，约对应 30 MB PNG。 */
 const MAX_OCR_BASE64 = 4e7;
-async function applyCommand(ctx, body, signal) {
+async function applyCommand(ctx, body, signal, widget) {
 	if (!isRecord(body) || typeof body.command !== "string") requestFailure("native/command-invalid", "原生命令格式无效。");
 	switch (body.command) {
+		case "widget-snapshot": return Response.json({
+			ok: true,
+			value: await widget?.snapshot(false, false) ?? null
+		});
 		case "permission": return applyPermission(ctx, body);
 		case "vision-status": return Response.json({
 			ok: true,
@@ -1069,7 +1081,7 @@ async function applyPermission(ctx, body) {
 * @param send - 将响应发送到本桥所属原生进程的同步发送器。
 * @returns 拥有请求取消和停用清理的桥接器。
 */
-function createNativeHostBridge(ctx, send) {
+function createNativeHostBridge(ctx, send, widget) {
 	const requests = /* @__PURE__ */ new Map();
 	const rpc = ctx.connection.createSharedFetchHandler("/api");
 	let disposed = false;
@@ -1123,7 +1135,7 @@ function createNativeHostBridge(ctx, send) {
 					type: "dsh-native-end",
 					id
 				});
-			} else if (path === "/.dsh/native-command") await respond(id, await applyCommand(ctx, JSON.parse(body), signal), signal);
+			} else if (path === "/.dsh/native-command") await respond(id, await applyCommand(ctx, JSON.parse(body), signal, widget), signal);
 			else if (RPC_PATHS.has(path)) await respond(id, await rpc.fetch(new Request(`http://dsh-native.local${path}`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
@@ -1202,6 +1214,267 @@ function dshLocalePreference(descriptors) {
 	}
 	return null;
 }
+// source/apps/desktop/native-extension-runtime/widget-monitor.ts
+/** Host 持有会话事件和记账数据，原生窗口只能读取脱敏快照。 */
+const emptyTotal = () => ({
+	input: 0,
+	cacheRead: 0,
+	cacheWrite: 0,
+	output: 0,
+	cost: 0,
+	unpriced: 0
+});
+const record = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+const tokens = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+function dayKey(now) {
+	const date = new Date(now);
+	return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+/** 零余额和赠金钱包同样有效；不同币种绝不相加。 */
+function accountWallets(value) {
+	if (!record(value) || value.status !== "ready") return [];
+	const wallets = /* @__PURE__ */ new Map();
+	for (const item of [...Array.isArray(value.value) ? value.value : [], ...Array.isArray(value.bonusWallets) ? value.bonusWallets : []]) {
+		if (!record(item) || typeof item.currency !== "string" || !item.currency) continue;
+		const amount = typeof item.balance === "string" && item.balance.trim() !== "" ? Number(item.balance) : item.balance;
+		if (typeof amount !== "number" || !Number.isFinite(amount)) continue;
+		wallets.set(item.currency, (wallets.get(item.currency) ?? 0) + amount);
+	}
+	return [...wallets].map(([currency, balance]) => ({
+		currency,
+		balance
+	}));
+}
+var DesktopWidgetMonitor = class {
+	ctx;
+	config;
+	now;
+	fetcher;
+	ledger = {
+		version: 1,
+		days: {},
+		sequences: {}
+	};
+	tasks = /* @__PURE__ */ new Map();
+	questions = /* @__PURE__ */ new Map();
+	approvals = /* @__PURE__ */ new Map();
+	revision = 0;
+	storageError = false;
+	balance = { state: "unavailable" };
+	balanceChecked;
+	balanceFlight;
+	closed = false;
+	releases = [];
+	path;
+	abort = new AbortController();
+	constructor(ctx, profile, config, now = Date.now, fetcher = fetch) {
+		this.ctx = ctx;
+		this.config = config;
+		this.now = now;
+		this.fetcher = fetcher;
+		this.path = join(profile, "desktop-tools", "usage.json");
+		if (existsSync(this.path)) try {
+			const value = JSON.parse(readFileSync(this.path, "utf8"));
+			if (!record(value) || value.version !== 1 || !record(value.days) || !record(value.sequences)) throw new Error("账本格式无效");
+			for (const [day, total] of Object.entries(value.days)) if (!/^\d{4}-\d{2}-\d{2}$/u.test(day) || !record(total) || Object.keys(emptyTotal()).some((key) => typeof total[key] !== "number" || !Number.isFinite(total[key]) || total[key] < 0)) throw new Error("账本格式无效");
+			if (Object.values(value.sequences).some((seq) => typeof seq !== "number" || !Number.isSafeInteger(seq) || seq < 0)) throw new Error("账本序号无效");
+			this.ledger = value;
+		} catch {
+			this.storageError = true;
+		}
+		this.releases.push(ctx.on("session/event", (session, event) => {
+			try {
+				this.accept(session, event);
+			} catch {
+				this.storageError = true;
+			}
+		}));
+		this.releases.push(ctx.on("session/disposed", (session) => {
+			if (typeof session?.id === "string") {
+				const task = this.tasks.get(session.id);
+				if (task?.state === "running" || task?.state === "waiting") this.tasks.delete(session.id);
+				this.questions.delete(session.id);
+				this.approvals.delete(session.id);
+			}
+		}));
+	}
+	/** 只消费新追加事件，持久化序号防止重放重复记账。 */
+	accept(session, event) {
+		if (this.closed || !record(session) || typeof session.id !== "string" || !record(event) || !record(event.data) || typeof event.seq !== "number" || !Number.isSafeInteger(event.seq) || event.seq < 0) return;
+		const id = session.id, seq = event.seq, data = event.data;
+		const sequenceKey = `session:${id}`;
+		if (seq <= (this.ledger.sequences[sequenceKey] ?? -1)) return;
+		this.ledger.sequences[sequenceKey] = seq;
+		const previous = this.tasks.get(id);
+		const title = event.type === "session/title" && typeof data.title === "string" ? data.title.slice(0, 120) : previous?.title ?? (typeof session.title === "string" ? session.title.slice(0, 120) : id.slice(0, 12));
+		let state = previous?.state;
+		if (event.type === "turn/start") {
+			state = "running";
+			this.questions.delete(id);
+			this.approvals.delete(id);
+		}
+		if (event.type === "approval/asked" && typeof data.id === "string") {
+			const pending = this.approvals.get(id) ?? /* @__PURE__ */ new Set();
+			pending.add(data.id);
+			this.approvals.set(id, pending);
+			state = "waiting";
+		}
+		if (event.type === "approval/decided" && typeof data.id === "string") this.approvals.get(id)?.delete(data.id);
+		if (event.type === "tool/call" && (data.name === "ask_user_question" || data.toolName === "ask_user_question")) {
+			const pending = this.questions.get(id) ?? /* @__PURE__ */ new Set();
+			pending.add(typeof data.callId === "string" ? data.callId : "");
+			this.questions.set(id, pending);
+			state = "waiting";
+		}
+		if (event.type === "tool/result" && record(data.message)) {
+			const callId = data.message.toolCallId ?? data.message.callId;
+			if (typeof callId === "string") this.questions.get(id)?.delete(callId);
+		}
+		if (state === "running" || state === "waiting") state = this.questions.get(id)?.size || this.approvals.get(id)?.size ? "waiting" : "running";
+		if (event.type === "turn/end") {
+			state = previous && (previous.state === "running" || previous.state === "waiting") ? (record(data.reason) ? data.reason.kind : data.reason) === "error" ? "failed" : "completed" : void 0;
+			this.questions.delete(id);
+			this.approvals.delete(id);
+		}
+		if (state !== void 0 && (state !== previous?.state || title !== previous?.title)) {
+			this.tasks.set(id, {
+				sessionId: id,
+				title,
+				state,
+				updatedAt: this.now(),
+				revision: ++this.revision,
+				turn: typeof data.turn === "number" ? data.turn : previous?.turn ?? -1
+			});
+			const finished = [...this.tasks.values()].filter((task) => task.state === "completed" || task.state === "failed").sort((a, b) => b.updatedAt - a.updatedAt);
+			for (const task of finished.slice(20)) this.tasks.delete(task.sessionId);
+		}
+		if (event.type === "assistant/message" && !this.storageError && this.config().accounting.enabled && record(data.usage)) {
+			const input = tokens(data.usage.inputTokens), cacheRead = tokens(data.usage.cacheReadTokens), output = tokens(data.usage.outputTokens);
+			const cacheWrite = tokens(data.usage.cacheWriteTokens);
+			const source = record(data.message) && record(data.message.source) ? data.message.source : {};
+			const rate = this.config().accounting.rates.find((item) => item.model === source.model && item.provider === source.provider);
+			const cost = rate ? (input * rate.input + cacheRead * rate.cacheRead + cacheWrite * (rate.cacheWrite ?? 0) + output * rate.output) / 1e6 : 0;
+			const key = dayKey(this.now()), before = this.ledger.days[key] ?? emptyTotal();
+			this.ledger.days[key] = {
+				input: before.input + input,
+				cacheRead: before.cacheRead + cacheRead,
+				cacheWrite: before.cacheWrite + cacheWrite,
+				output: before.output + output,
+				cost: before.cost + cost,
+				unpriced: before.unpriced + (rate ? rate.cacheWrite === void 0 ? cacheWrite : 0 : input + cacheRead + cacheWrite + output)
+			};
+			this.save();
+		} else if (event.type === "turn/end") this.save();
+	}
+	save() {
+		if (this.storageError) return;
+		try {
+			mkdirSync(dirname(this.path), { recursive: true });
+			const temporary = `${this.path}.${process.pid}.tmp`;
+			writeFileSync(temporary, JSON.stringify(this.ledger), "utf8");
+			renameSync(temporary, this.path);
+		} catch {
+			this.storageError = true;
+		}
+	}
+	/** 可选账户服务没有 AbortSignal 参数，用有界等待避免挂住刷新。 */
+	async bounded(pending) {
+		const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(1e4)]);
+		let rejectWait = () => {};
+		try {
+			return await Promise.race([pending, new Promise((_, reject) => {
+				rejectWait = () => {
+					reject(/* @__PURE__ */ new Error("余额查询已取消或超时"));
+				};
+				if (signal.aborted) rejectWait();
+				else signal.addEventListener("abort", rejectWait, { once: true });
+			})]);
+		} finally {
+			signal.removeEventListener("abort", rejectWait);
+		}
+	}
+	async refreshBalance() {
+		let failed = false;
+		try {
+			const credentials = this.ctx.get("credentials");
+			const credential = credentials ? await this.bounded(credentials.resolve("DEEPSEEK_API_KEY")) : void 0;
+			if (credential?.value) {
+				const response = await this.fetcher("https://api.deepseek.com/user/balance", {
+					headers: { Authorization: `Bearer ${credential.value}` },
+					signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(8e3)])
+				});
+				if (!response.ok) throw new Error("余额请求失败");
+				const body = await response.json();
+				const wallets = record(body) && Array.isArray(body.balance_infos) ? body.balance_infos.flatMap((item) => {
+					if (!record(item) || typeof item.currency !== "string" || !["number", "string"].includes(typeof item.total_balance) || item.total_balance === "") return [];
+					const balance = Number(item.total_balance);
+					return Number.isFinite(balance) ? [{
+						currency: item.currency,
+						balance
+					}] : [];
+				}) : [];
+				if (!wallets.length) throw new Error("余额格式无效");
+				this.balance = {
+					state: "ready",
+					source: "api",
+					wallets,
+					updatedAt: this.now()
+				};
+				return;
+			}
+		} catch {
+			failed = true;
+		}
+		try {
+			const account = this.ctx.get("deepseekAccount");
+			const wallets = accountWallets(account ? await this.bounded(account.getBalance({
+				version: process.env.DSH_CLIENT_VERSION || process.env.DSH_VERSION || "unknown",
+				locale: "zh_CN",
+				timezoneOffsetSeconds: -(/* @__PURE__ */ new Date()).getTimezoneOffset() * 60
+			})) : void 0);
+			this.balance = wallets.length ? {
+				state: "ready",
+				source: "account",
+				wallets,
+				updatedAt: this.now()
+			} : { state: failed ? "error" : "unavailable" };
+		} catch {
+			this.balance = { state: "error" };
+		}
+	}
+	async snapshot(force = false, waitBalance = true) {
+		if (!this.closed && this.config().accounting.enabled && (force || this.balanceChecked === void 0 || this.now() - this.balanceChecked >= 6e4)) {
+			this.balanceFlight ??= this.refreshBalance().finally(() => {
+				this.balanceChecked = this.now();
+				this.balanceFlight = void 0;
+			});
+			if (waitBalance) await this.balanceFlight;
+		}
+		const total = emptyTotal();
+		const days = Object.entries(this.ledger.days).sort(([a], [b]) => b.localeCompare(a)).map(([day, value]) => ({
+			day,
+			...value
+		}));
+		for (const day of days) for (const key of Object.keys(total)) total[key] += day[key];
+		const today = this.ledger.days[dayKey(this.now())] ?? emptyTotal();
+		const budget = this.config().accounting.dailyBudget;
+		return {
+			tasks: [...this.tasks.values()].sort((a, b) => b.updatedAt - a.updatedAt),
+			today,
+			total,
+			days: days.slice(0, 30),
+			balance: this.config().accounting.enabled ? this.balance : { state: "unavailable" },
+			budgetExceeded: this.config().accounting.enabled && budget > 0 && today.cost >= budget,
+			storageError: this.storageError
+		};
+	}
+	dispose() {
+		this.closed = true;
+		this.abort.abort();
+		for (const release of this.releases) release();
+		this.save();
+	}
+};
 // source/apps/desktop/native-extension-runtime/index.ts
 /** 官方 DSH 通过可注入服务管理独立原生插件，不依赖桌面扩展 API。 */
 /** 原生插件共用的 Electron 进程；每个插件独立等待激活和释放回执。 */
@@ -1222,13 +1495,13 @@ var NativeRuntime = class {
 	disposing;
 	helperElectron;
 	/** @param ctx 官方服务与当前配置目录。 @param config 进程等待时限与可执行文件覆盖。 */
-	constructor(ctx, config, onFailure, onDisableFeature, localePreference) {
+	constructor(ctx, config, onFailure, onDisableFeature, localePreference, widget) {
 		this.ctx = ctx;
 		this.config = config;
 		this.onFailure = onFailure;
 		this.onDisableFeature = onDisableFeature;
 		this.localePreference = localePreference;
-		this.bridge = createNativeHostBridge(ctx, (message) => this.send(message));
+		this.bridge = createNativeHostBridge(ctx, (message) => this.send(message), widget);
 	}
 	/** @param descriptor 安装包拥有的入口和资源。 @returns 仅释放本插件的操作。 */
 	async activate(descriptor) {
@@ -1509,6 +1782,8 @@ const Config = z.object({
 });
 /** @param ctx 官方注入的服务。 @param config 已校验的运行配置。 */
 function apply(ctx, config) {
+	const widget = new DesktopWidgetMonitor(ctx, ctx.profileContext.dir, () => readDesktopToolsConfig(ctx.profileContext.dir));
+	ctx.effect(() => () => widget.dispose());
 	const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 	const readLocale = async () => {
 		const settings = ctx.get("settings");
@@ -1524,7 +1799,7 @@ function apply(ctx, config) {
 			controller.disableFeature(feature).catch((error) => {
 				ctx.logger.error("桌面工具停用失败: %s", error instanceof Error ? error.message : String(error));
 			});
-		}, readLocale)
+		}, readLocale, widget)
 	});
 	let lastLocale;
 	ctx.on("settings/document-updated", (ns) => {
@@ -1537,7 +1812,7 @@ function apply(ctx, config) {
 			ctx.logger.warn("桌面工具语言同步失败: %s", error instanceof Error ? error.message : String(error));
 		});
 	});
-	new DesktopToolsService(ctx, controller);
+	new DesktopToolsService(ctx, controller, widget);
 	ctx.effect(() => {
 		controller.start().catch((error) => {
 			ctx.logger.error("桌面工具后台启动失败: %s", error instanceof Error ? error.message : String(error));

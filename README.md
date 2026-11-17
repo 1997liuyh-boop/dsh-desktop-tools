@@ -12,7 +12,7 @@ Use DSH Desktop `>=0.2.2-rc.1 <0.3.0-0`, then add this repository as one plugin:
 https://github.com/1997liuyh-boop/dsh-desktop-tools.git
 ```
 
-Install tag `0.7.0`. The plugin includes its own helper, preload, native feature modules, static assets, and settings page. No separate `dsh-desktop-runtime`, `dsh-selection-toolbar`, `dsh-floating-ball`, or `dsh-capture` package is required.
+Install tag `0.8.0`. The plugin includes its own helper, preload, native feature modules, static assets, and settings page. No separate `dsh-desktop-runtime`, `dsh-selection-toolbar`, `dsh-floating-ball`, or `dsh-capture` package is required.
 
 Installation does not require an Electron `path.txt` file and does not use the `koffi` install script. The helper loads the matching prebuilt Koffi platform package.
 
@@ -75,14 +75,15 @@ Platform limits:
 
 ## Replace earlier plugins
 
-If the profile already has any of the four earlier entries, remove `dsh-selection-toolbar`, `dsh-floating-ball`, `dsh-capture`, and `dsh-desktop-runtime` before installing `dsh-desktop-tools@0.7.0`, then restart the Host. The new plugin stores settings in `desktop-tools.json`; it does not import the retired packages' separate settings files. Its defaults enable the selection toolbar and floating assistant, and disable screenshots and recording.
+If the profile already has any of the four earlier entries, remove `dsh-selection-toolbar`, `dsh-floating-ball`, `dsh-capture`, and `dsh-desktop-runtime` before installing `dsh-desktop-tools@0.8.0`, then restart the Host. The new plugin stores settings in `desktop-tools.json`; it does not import the retired packages' separate settings files. Its defaults enable the selection toolbar and floating assistant, and disable screenshots and recording.
 
 ## Settings
 
-The DSH settings panel adds one **Desktop tools** entry with five submenus:
+The DSH settings panel adds one **Desktop tools** entry with six submenus:
 
 - Selection toolbar: enablement, target language, model, compatibility copy, and the toolbar buttons: turn them on or off, reorder them, and add up to 10 custom actions (a name and a prompt; `{text}` becomes the selected text and `{language}` the target language). Custom actions stream their output in the result window like Translate and Explain.
 - Floating assistant: enablement, avatar, conversation/background models, permission preset, coordinate mode, and system permissions.
+- Usage & balance: actual DeepSeek API/account balances, local token totals, configurable model rates in CNY per million tokens, and a daily estimate budget.
 - Screenshot: enablement, the screenshot shortcut (default `Ctrl/Cmd + Shift + S`), an optional long-screenshot shortcut, and dsh-vision-router status with one-click install.
 - Screen recording: enablement, the recording shortcut (default `Ctrl/Cmd + Shift + R`), and default format, quality, system sound, microphone, and knowledge graph.
 - Diagnostics: checks the configuration file, the helper Electron (path and version against DSH), the Koffi native module, the helper process and each tool, global shortcut registration, dsh-vision-router, and macOS system permissions. Each item shows OK, Needs attention, Error, or Not applicable; restarting the helper, installing or enabling dsh-vision-router, and opening system permissions can be done from the item. **Copy report** copies a plain-text report to attach to an issue.
@@ -94,6 +95,18 @@ Saving settings only starts or stops the tools whose switch changed; tools that 
 The desktop tools follow the DSH language setting: after you switch languages in DSH, the tray menu, the floating ball right-click menu, the selection toolbar, and windows opened afterwards use the new language; the floating assistant panel updates the next time it starts.
 
 Capture history (on by default): screenshots you copy, save, pin, or forward, Extract text / Translate / Knowledge graph / Ask results, and saved recording paths are recorded in the profile under `desktop-tools/history/` (up to 100 entries). Open the history window from the tray **Capture history…**, the floating ball menu, or settings to copy an image or text, ask again, pin, show the file in its folder, delete, or clear everything. Turn recording off or clear it under Settings → Desktop tools → Screenshot; clearing never deletes files you saved yourself.
+
+## Floating assistant and accounting
+
+Click the ball to open and focus a conversation; hold and drag to move it. Releasing within the configured distance (24 logical pixels by default) snaps left/right to a compact tab, or top/bottom to the visible work area. Hover over a tab or click it to bring the ball back. Settings include snap, status bubble, and notification switches.
+
+Task bubbles show running, waiting for a question/approval, and finished/failed states. Clicking a bubble or completion notification opens that conversation. Completion notifications use live turns, not chat-history replay; renamed conversations do not generate another completion alert. Bubbles stay out of the way while the conversation panel is open.
+
+**Usage & balance** separates actual balances from this device’s usage estimates. Balances use the DSH `DEEPSEEK_API_KEY` credential when available, then the optional DSH account service; keys remain in the Host process. Balance queries are cached for one minute. Input, cache read, cache creation, and output tokens are counted separately; reasoning is already included in output. Configure provider/model rates before estimating costs. Unknown rates remain explicitly unpriced, and rate changes apply only to future messages. A budget of zero disables reminders; reminders use local-day estimated CNY costs and do not enforce a spending limit.
+
+The local ledger is stored at `profile/desktop-tools/usage.json`; it records new events while enabled, preserves daily totals across restarts, and deduplicates session event sequences. It does not import historical sessions or reconcile invoices. Task state refreshes about every 1.5 seconds, and OS notifications depend on system support and notification settings. Bubbles, reminders, and local usage recording default to enabled; old configuration files receive these defaults automatically.
+
+These additions were inspired by [DeepSeek Balance Whale Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget).
 
 ## Build
 

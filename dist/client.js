@@ -132,6 +132,149 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
       result?.items.map(row)
     ] });
   }
+  function UsagePanel({ t, services, value, onChange, disabled, catalog, buttonClass, inputClass }) {
+    const [snapshot, setSnapshot] = react.useState();
+    const [error, setError] = react.useState(false);
+    const [refreshing, setRefreshing] = react.useState(false);
+    const mounted = react.useRef(false);
+    const flight = react.useRef(false);
+    const refresh = async (force = false) => {
+      if (flight.current) return;
+      flight.current = true;
+      setRefreshing(true);
+      try {
+        const result = await services.widgetSnapshot(force);
+        if (!mounted.current) return;
+        setError(!result.ok);
+        if (result.ok) setSnapshot(result.value);
+      } catch {
+        if (mounted.current) setError(true);
+      } finally {
+        flight.current = false;
+        if (mounted.current) setRefreshing(false);
+      }
+    };
+    react.useEffect(() => {
+      mounted.current = true;
+      void refresh();
+      const timer = setInterval(() => {
+        void refresh();
+      }, 5e3);
+      return () => {
+        mounted.current = false;
+        clearInterval(timer);
+      };
+    }, [services]);
+    const metrics = (total) => /* @__PURE__ */ jsxRuntime.jsx("dl", { className: "m-0 grid grid-cols-2 gap-x-5 gap-y-2 text-[13px] sm:grid-cols-3", children: ["input", "cacheRead", "cacheWrite", "output", "cost", "unpriced"].map((key) => /* @__PURE__ */ jsxRuntime.jsxs("div", { children: [
+      /* @__PURE__ */ jsxRuntime.jsx("dt", { className: "text-[var(--dsw-alias-label-tertiary)]", children: t(key === "input" ? "tokenInput" : key === "cacheRead" ? "tokenCache" : key === "cacheWrite" ? "tokenCacheWrite" : key === "output" ? "tokenOutput" : key === "cost" ? "estimatedCost" : "unpricedTokens") }),
+      /* @__PURE__ */ jsxRuntime.jsx("dd", { className: "m-0 tabular-nums", children: key === "cost" ? `¥${total[key].toFixed(4)}` : total[key].toLocaleString() })
+    ] }, key)) });
+    return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex min-w-0 flex-col gap-5 py-4", children: [
+      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex flex-wrap items-center justify-between gap-2", children: [
+        /* @__PURE__ */ jsxRuntime.jsx(dshClientUiPrimitives.Switch, { checked: value.enabled, disabled, label: t("accountingEnabled"), onChange: (enabled) => onChange({ ...value, enabled }) }),
+        /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: buttonClass, disabled: refreshing || !value.enabled, onClick: () => {
+          void refresh(true);
+        }, children: refreshing ? t("loading") : t("refreshBalance") })
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsx("p", { className: "m-0 text-[13px] text-[var(--dsw-alias-label-tertiary)]", children: t("accountingHint") }),
+      (error || snapshot?.storageError) && /* @__PURE__ */ jsxRuntime.jsx("p", { role: "alert", className: "m-0 text-sm text-[var(--dsw-alias-state-error-primary)]", children: t(snapshot?.storageError ? "usageStorageError" : "usageRefreshError") }),
+      !snapshot && !error && /* @__PURE__ */ jsxRuntime.jsx("p", { role: "status", className: "m-0 text-sm", children: t("loading") }),
+      snapshot && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("section", { className: "rounded-xl border border-[var(--dsw-alias-border-l2)] p-4", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("h3", { className: "mb-2 mt-0 text-sm font-medium", children: t("actualBalance") }),
+          snapshot.balance.state === "ready" ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+            /* @__PURE__ */ jsxRuntime.jsx("p", { className: "m-0 text-xl tabular-nums", children: snapshot.balance.wallets?.map((wallet) => `${wallet.currency} ${wallet.balance.toFixed(4)}`).join(" · ") }),
+            /* @__PURE__ */ jsxRuntime.jsxs("p", { className: "mb-0 mt-1 text-xs text-[var(--dsw-alias-label-tertiary)]", children: [
+              t(snapshot.balance.source === "api" ? "balanceApi" : "balanceAccount"),
+              " · ",
+              t("updatedAt"),
+              " ",
+              snapshot.balance.updatedAt ? new Date(snapshot.balance.updatedAt).toLocaleString() : "—"
+            ] })
+          ] }) : /* @__PURE__ */ jsxRuntime.jsx("p", { className: "m-0 text-[13px] text-[var(--dsw-alias-label-tertiary)]", children: t(snapshot.balance.state === "error" ? "balanceError" : "balanceUnavailable") })
+        ] }),
+        [["todayUsage", snapshot.today], ["totalUsage", snapshot.total]].map(([label, total]) => /* @__PURE__ */ jsxRuntime.jsxs("section", { children: [
+          /* @__PURE__ */ jsxRuntime.jsx("h3", { className: "mb-2 mt-0 text-sm font-medium", children: t(label) }),
+          metrics(total)
+        ] }, String(label)))
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "flex flex-wrap items-center justify-between gap-3 text-sm", children: [
+        t("dailyBudget"),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "input",
+          {
+            className: inputClass,
+            type: "number",
+            min: 0,
+            max: 1e6,
+            step: "any",
+            disabled,
+            value: value.dailyBudget,
+            onChange: (event) => onChange({ ...value, dailyBudget: Number(event.currentTarget.value) })
+          }
+        )
+      ] }),
+      /* @__PURE__ */ jsxRuntime.jsxs("section", { className: "flex min-w-0 flex-col gap-3", children: [
+        /* @__PURE__ */ jsxRuntime.jsx("h3", { className: "m-0 text-sm font-medium", children: t("tokenRates") }),
+        /* @__PURE__ */ jsxRuntime.jsx("p", { className: "m-0 text-[13px] text-[var(--dsw-alias-label-tertiary)]", children: t("ratesHint") }),
+        value.rates.map((rate, index) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "grid min-w-0 grid-cols-2 gap-2 rounded-xl border border-[var(--dsw-alias-border-l2)] p-3 sm:grid-cols-3", children: [
+          ["provider", "model", "input", "cacheRead", "cacheWrite", "output"].map((field) => /* @__PURE__ */ jsxRuntime.jsxs("label", { className: "flex min-w-0 flex-col gap-1 text-xs", children: [
+            t(field === "input" ? "tokenInput" : field === "cacheRead" ? "tokenCache" : field === "cacheWrite" ? "tokenCacheWrite" : field === "output" ? "tokenOutput" : field),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "input",
+              {
+                className: `${inputClass} !w-full !min-w-0`,
+                disabled,
+                type: field === "model" || field === "provider" ? "text" : "number",
+                min: 0,
+                max: 1e6,
+                step: "any",
+                maxLength: 200,
+                value: rate[field] ?? "",
+                list: field === "provider" ? "usage-providers" : field === "model" ? `usage-models-${index}` : void 0,
+                onChange: (event) => onChange({ ...value, rates: value.rates.map((item, position) => position === index ? { ...item, [field]: field === "provider" || field === "model" ? event.currentTarget.value : field === "cacheWrite" && event.currentTarget.value === "" ? void 0 : Number(event.currentTarget.value) } : item) })
+              }
+            )
+          ] }, field)),
+          /* @__PURE__ */ jsxRuntime.jsx("datalist", { id: `usage-models-${index}`, children: catalog?.groups.find((group) => group.id === rate.provider)?.models.map((model) => /* @__PURE__ */ jsxRuntime.jsx("option", { value: model.id, children: model.name }, model.id)) }),
+          /* @__PURE__ */ jsxRuntime.jsx("button", { type: "button", className: `${buttonClass} self-end`, disabled, onClick: () => onChange({ ...value, rates: value.rates.filter((_, position) => position !== index) }), children: t("removeRate") })
+        ] }, index)),
+        /* @__PURE__ */ jsxRuntime.jsx("datalist", { id: "usage-providers", children: catalog?.groups.map((group) => /* @__PURE__ */ jsxRuntime.jsx("option", { value: group.id, children: group.name }, group.id)) }),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "button",
+          {
+            type: "button",
+            className: `${buttonClass} w-fit`,
+            disabled: disabled || value.rates.length >= 100,
+            onClick: () => onChange({ ...value, rates: [...value.rates, { provider: "", model: "", input: 0, cacheRead: 0, output: 0 }] }),
+            children: t("addRate")
+          }
+        )
+      ] }),
+      !!snapshot?.days.length && /* @__PURE__ */ jsxRuntime.jsxs("details", { children: [
+        /* @__PURE__ */ jsxRuntime.jsx("summary", { className: "cursor-pointer text-sm", children: t("usageDays") }),
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "mt-3 overflow-x-auto", children: /* @__PURE__ */ jsxRuntime.jsxs("table", { className: "w-full text-left text-[13px] tabular-nums", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("thead", { children: /* @__PURE__ */ jsxRuntime.jsxs("tr", { children: [
+            /* @__PURE__ */ jsxRuntime.jsx("th", { className: "py-2 font-medium", children: t("usageDate") }),
+            /* @__PURE__ */ jsxRuntime.jsx("th", { className: "font-medium", children: t("tokenInput") }),
+            /* @__PURE__ */ jsxRuntime.jsx("th", { className: "font-medium", children: t("tokenCache") }),
+            /* @__PURE__ */ jsxRuntime.jsx("th", { className: "font-medium", children: t("tokenOutput") }),
+            /* @__PURE__ */ jsxRuntime.jsx("th", { className: "font-medium", children: t("estimatedCost") })
+          ] }) }),
+          /* @__PURE__ */ jsxRuntime.jsx("tbody", { children: snapshot.days.map((day) => /* @__PURE__ */ jsxRuntime.jsxs("tr", { children: [
+            /* @__PURE__ */ jsxRuntime.jsx("td", { className: "py-1", children: day.day }),
+            /* @__PURE__ */ jsxRuntime.jsx("td", { children: day.input.toLocaleString() }),
+            /* @__PURE__ */ jsxRuntime.jsx("td", { children: day.cacheRead.toLocaleString() }),
+            /* @__PURE__ */ jsxRuntime.jsx("td", { children: day.output.toLocaleString() }),
+            /* @__PURE__ */ jsxRuntime.jsxs("td", { children: [
+              "¥",
+              day.cost.toFixed(4)
+            ] })
+          ] }, day.day)) })
+        ] }) })
+      ] })
+    ] });
+  }
   const LIMITS = { count: 10, name: 20, prompt: 4e3 };
   const BUILTIN_IDS = ["search", "translate", "note", "wechat", "explain", "send-to-agent"];
   const BUILTIN_LABELS = {
@@ -349,7 +492,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     const mac = platform === "darwin";
     return value.split("+").map((part) => part === "CommandOrControl" ? mac ? "⌘" : "Ctrl" : mac && part === "Alt" ? "⌥" : mac && part === "Shift" ? "⇧" : part).join(" + ");
   }
-  const tabs = ["selection", "floating", "screenshot", "recording", "diagnostics"];
+  const tabs = ["selection", "floating", "screenshot", "recording", "accounting", "diagnostics"];
   function statusLabel(phase, t) {
     if (phase === "active") return t("featureActive");
     if (phase === "starting") return t("featureStarting");
@@ -538,7 +681,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
       setMessage(applied ? t("saved") : t("pending"));
     };
     const setFeature = (feature, enabled2) => {
-      if (draft === void 0 || feature === "diagnostics") return;
+      if (draft === void 0 || feature === "diagnostics" || feature === "accounting") return;
       if (feature === "selection") setDraft({ ...draft, selection: { ...draft.selection, enabled: enabled2 } });
       else if (feature === "floating") setDraft({ ...draft, floatingBall: { ...draft.floatingBall, enabled: enabled2 } });
       else if (feature === "screenshot") setDraft({ ...draft, screenshot: { ...draft.screenshot, enabled: enabled2 } });
@@ -686,7 +829,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
         item
       )) }),
       /* @__PURE__ */ jsxRuntime.jsxs("div", { id: "desktop-tools-panel", role: "tabpanel", "aria-labelledby": `desktop-tools-tab-${tab}`, className: "flex min-w-0 flex-col pt-0.5", children: [
-        tab !== "diagnostics" && /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t(enableKey), description: enabled ? statusLabel(active?.phase ?? "disabled", t) : t("featureDisabled"), alert: active?.phase === "error" && active.error ? active.error : void 0, children: /* @__PURE__ */ jsxRuntime.jsx(dshClientUiPrimitives.Switch, { checked: enabled, disabled: busy, label: t(enableKey), onChange: (next) => setFeature(tab, next) }) }),
+        tab !== "diagnostics" && tab !== "accounting" && /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t(enableKey), description: enabled ? statusLabel(active?.phase ?? "disabled", t) : t("featureDisabled"), alert: active?.phase === "error" && active.error ? active.error : void 0, children: /* @__PURE__ */ jsxRuntime.jsx(dshClientUiPrimitives.Switch, { checked: enabled, disabled: busy, label: t(enableKey), onChange: (next) => setFeature(tab, next) }) }),
         tab === "diagnostics" && /* @__PURE__ */ jsxRuntime.jsx(
           DiagnosticsPanel,
           {
@@ -744,6 +887,30 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
           )
         ] }),
         tab === "floating" && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntime.jsx("p", { className: "text-[13px] text-[var(--dsw-alias-label-tertiary)]", children: t("clickChatHint") }),
+          ["edgeSnap", "taskBubbles", "completionNotifications"].map((field) => /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t(field), children: /* @__PURE__ */ jsxRuntime.jsx(
+            dshClientUiPrimitives.Switch,
+            {
+              checked: draft.floatingBall[field],
+              disabled: busy,
+              label: t(field),
+              onChange: (value) => setDraft({ ...draft, floatingBall: { ...draft.floatingBall, [field]: value } })
+            }
+          ) }, field)),
+          /* @__PURE__ */ jsxRuntime.jsx(Row, { title: t("snapDistance"), children: /* @__PURE__ */ jsxRuntime.jsx(
+            "input",
+            {
+              type: "number",
+              min: 0,
+              max: 120,
+              step: 1,
+              "aria-label": t("snapDistance"),
+              className: INPUT_CLASS,
+              disabled: busy || !draft.floatingBall.edgeSnap,
+              value: draft.floatingBall.snapDistance,
+              onChange: (event) => setDraft({ ...draft, floatingBall: { ...draft.floatingBall, snapDistance: Number(event.currentTarget.value) } })
+            }
+          ) }),
           /* @__PURE__ */ jsxRuntime.jsxs(Row, { title: t("avatar"), description: avatar === void 0 && defaultAvatar !== void 0 ? `${t("avatarDescription")} ${t("defaultAvatar")}` : t("avatarDescription"), children: [
             (avatar ?? defaultAvatar) === void 0 ? /* @__PURE__ */ jsxRuntime.jsx("span", { "aria-hidden": "true", className: "size-9 rounded-[var(--dsw-radius-md)] bg-[var(--dsw-alias-bg-module-platform)]" }) : /* @__PURE__ */ jsxRuntime.jsx("img", { src: avatar ?? defaultAvatar, alt: t("avatar"), className: "size-9 rounded-[var(--dsw-radius-md)] object-cover" }),
             /* @__PURE__ */ jsxRuntime.jsxs("label", { className: `${BUTTON_CLASS} focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-[var(--dsw-alias-state-business-primary)]`, children: [
@@ -787,6 +954,19 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
             });
           }, children: t("openSettings") }) }, right))
         ] }),
+        tab === "accounting" && /* @__PURE__ */ jsxRuntime.jsx(
+          UsagePanel,
+          {
+            t,
+            services,
+            value: draft.accounting,
+            disabled: busy,
+            catalog,
+            onChange: (accounting) => setDraft({ ...draft, accounting }),
+            buttonClass: BUTTON_CLASS,
+            inputClass: INPUT_CLASS
+          }
+        ),
         tab === "screenshot" && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
           shortcutRow("screenshot.shortcut"),
           shortcutRow("screenshot.longShortcut"),
@@ -888,6 +1068,38 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     ] });
   }
   const en = {
+    tokenCacheWrite: "Cache creation",
+    accounting: "Usage & balance",
+    accountingEnabled: "Record local usage",
+    accountingHint: "Counts new DSH message events on this device while enabled. Balance is an account observation; estimated costs are calculated separately in CNY. Reasoning tokens are included in output.",
+    edgeSnap: "Snap to screen edges",
+    snapDistance: "Snap distance (px)",
+    taskBubbles: "Task status bubbles",
+    completionNotifications: "Task completion and budget notifications",
+    clickChatHint: "Click to chat; hold and drag to move. Left and right edges collapse to a tab; top and bottom edges keep the ball visible.",
+    todayUsage: "Today",
+    totalUsage: "All recorded usage",
+    actualBalance: "Account balance",
+    balanceUnavailable: "Balance unavailable. Configure a DeepSeek API key in DSH or sign in to a supported account service.",
+    balanceError: "Balance refresh failed. Try again later.",
+    balanceApi: "DeepSeek API key",
+    balanceAccount: "DSH account",
+    updatedAt: "Updated",
+    refreshBalance: "Refresh balance",
+    dailyBudget: "Daily estimate budget (CNY, 0 disables reminder)",
+    tokenInput: "Input",
+    tokenCache: "Cached input",
+    tokenOutput: "Output",
+    estimatedCost: "Estimated cost (CNY)",
+    unpricedTokens: "Tokens without configured rates",
+    tokenRates: "Model rates · CNY / million tokens",
+    ratesHint: "Use provider and model IDs from DSH with your provider’s rates. Unconfigured models remain unpriced; new rates apply only to future messages.",
+    addRate: "Add rate",
+    removeRate: "Remove",
+    usageStorageError: "The local usage ledger could not be read or saved. Recording has stopped; the existing file has been preserved.",
+    usageRefreshError: "Could not refresh usage.",
+    usageDays: "Recent 30 recorded days",
+    usageDate: "Date",
     title: "Desktop tools",
     selection: "Selection toolbar",
     floating: "Floating assistant",
@@ -1085,6 +1297,38 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     diagPermissionDenied: "Not granted"
   };
   const zh = {
+    tokenCacheWrite: "缓存创建",
+    accounting: "用量与余额",
+    accountingEnabled: "记录本机用量",
+    accountingHint: "仅统计开启期间本机收到的新 DSH 消息事件。余额是账户查询值，估算费用以人民币单独计算；推理 token 已包含在输出中。",
+    edgeSnap: "拖拽边缘吸附",
+    snapDistance: "吸附距离（像素）",
+    taskBubbles: "任务状态气泡",
+    completionNotifications: "任务完成与预算提醒",
+    clickChatHint: "点击开始对话，按住拖动调整位置。左右吸附为细条，上下吸附保持球体可见。",
+    todayUsage: "今日用量",
+    totalUsage: "累计记录用量",
+    actualBalance: "账户余额",
+    balanceUnavailable: "暂无法读取余额。请在 DSH 配置 DeepSeek API Key，或登录支持余额查询的账户服务。",
+    balanceError: "余额刷新失败，请稍后重试。",
+    balanceApi: "DeepSeek API Key",
+    balanceAccount: "DSH 账户",
+    updatedAt: "更新时间",
+    refreshBalance: "刷新余额",
+    dailyBudget: "每日估算预算（元，0 表示不提醒）",
+    tokenInput: "输入",
+    tokenCache: "缓存输入",
+    tokenOutput: "输出",
+    estimatedCost: "估算费用（元）",
+    unpricedTokens: "未配置单价的 token",
+    tokenRates: "模型单价 · 元 / 百万 token",
+    ratesHint: "填写 DSH 的服务商和模型 ID，以及服务商公布的单价。未配置模型保留为未计价；新单价只应用于后续消息。",
+    addRate: "添加单价",
+    removeRate: "移除",
+    usageStorageError: "无法读取或保存本机账本，已停止记录并保留原文件。",
+    usageRefreshError: "无法刷新用量，请重试。",
+    usageDays: "最近 30 个有记录的日期",
+    usageDate: "日期",
     title: "桌面工具",
     selection: "划词工具栏",
     floating: "悬浮球",
@@ -1285,6 +1529,8 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
 @layer properties;
 @layer theme {
   :root, :host {
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans', Arial,
+    sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
     monospace;
     --color-red-50: oklch(97.1% 0.013 17.38);
@@ -1393,8 +1639,23 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .m-0 {
     margin: 0px;
   }
+  .mt-0 {
+    margin-top: 0px;
+  }
   .mt-0\\.5 {
     margin-top: calc(var(--spacing) * 0.5);
+  }
+  .mt-1 {
+    margin-top: var(--spacing);
+  }
+  .mt-3 {
+    margin-top: calc(var(--spacing) * 3);
+  }
+  .mb-0 {
+    margin-bottom: 0px;
+  }
+  .mb-2 {
+    margin-bottom: calc(var(--spacing) * 2);
   }
   .ml-auto {
     margin-left: auto;
@@ -1462,6 +1723,9 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .min-h-\\[96px\\] {
     min-height: 96px;
   }
+  .\\!w-full {
+    width: 100% !important;
+  }
   .w-36 {
     width: calc(var(--spacing) * 36);
   }
@@ -1471,8 +1735,14 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .w-fit {
     width: fit-content;
   }
+  .w-full {
+    width: 100%;
+  }
   .max-w-full {
     max-width: 100%;
+  }
+  .\\!min-w-0 {
+    min-width: 0px !important;
   }
   .min-w-0 {
     min-width: 0px;
@@ -1510,6 +1780,9 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .resize {
     resize: both;
   }
+  .grid-cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .flex-col {
     flex-direction: column;
   }
@@ -1543,19 +1816,34 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .gap-3 {
     gap: calc(var(--spacing) * 3);
   }
+  .gap-5 {
+    gap: calc(var(--spacing) * 5);
+  }
+  .gap-x-5 {
+    column-gap: calc(var(--spacing) * 5);
+  }
   .gap-x-6 {
     column-gap: calc(var(--spacing) * 6);
   }
   .gap-x-\\[22px\\] {
     column-gap: 22px;
   }
+  .gap-y-2 {
+    row-gap: calc(var(--spacing) * 2);
+  }
   .gap-y-3 {
     row-gap: calc(var(--spacing) * 3);
+  }
+  .self-end {
+    align-self: flex-end;
   }
   .truncate {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .overflow-x-auto {
+    overflow-x: auto;
   }
   .rounded {
     border-radius: 0.25rem;
@@ -1565,6 +1853,9 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   }
   .rounded-full {
     border-radius: calc(infinity * 1px);
+  }
+  .rounded-xl {
+    border-radius: var(--radius-xl);
   }
   .border {
     border-style: var(--tw-border-style);
@@ -1611,6 +1902,12 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .object-cover {
     object-fit: cover;
   }
+  .p-3 {
+    padding: calc(var(--spacing) * 3);
+  }
+  .p-4 {
+    padding: calc(var(--spacing) * 4);
+  }
   .px-3 {
     padding-inline: calc(var(--spacing) * 3);
   }
@@ -1619,6 +1916,9 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   }
   .px-px {
     padding-inline: 1px;
+  }
+  .py-1 {
+    padding-block: var(--spacing);
   }
   .py-2 {
     padding-block: calc(var(--spacing) * 2);
@@ -1641,6 +1941,9 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .pb-\\[9px\\] {
     padding-bottom: 9px;
   }
+  .text-left {
+    text-align: left;
+  }
   .font-\\[inherit\\] {
     font-family: inherit;
   }
@@ -1651,6 +1954,10 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   .text-sm {
     font-size: var(--text-sm);
     line-height: var(--tw-leading, var(--text-sm--line-height));
+  }
+  .text-xl {
+    font-size: var(--text-xl);
+    line-height: var(--tw-leading, var(--text-xl--line-height));
   }
   .text-xs {
     font-size: var(--text-xs);
@@ -1726,6 +2033,10 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
   }
   .ordinal {
     --tw-ordinal: ordinal;
+    font-variant-numeric: var(--tw-ordinal, ) var(--tw-slashed-zero, ) var(--tw-numeric-figure, ) var(--tw-numeric-spacing, ) var(--tw-numeric-fraction, );
+  }
+  .tabular-nums {
+    --tw-numeric-spacing: tabular-nums;
     font-variant-numeric: var(--tw-ordinal, ) var(--tw-slashed-zero, ) var(--tw-numeric-figure, ) var(--tw-numeric-spacing, ) var(--tw-numeric-fraction, );
   }
   .line-through {
@@ -1874,6 +2185,9 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     content: var(--tw-content);
   }
   @media (width >= 40rem) {
+    .sm\\:grid-cols-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
     .sm\\:pr-12 {
       padding-right: calc(var(--spacing) * 12);
     }
@@ -2279,6 +2593,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     package: "dsh-desktop-tools",
     methods: {
       "desktopTools/snapshot": method("snapshot", [], json),
+      "desktopTools/widgetSnapshot": method("widgetSnapshot", [parameter("refresh", zod.z.boolean())], json),
       "desktopTools/update": method("update", [parameter("config", json)], json),
       "desktopTools/restart": method("restart", [], json),
       "desktopTools/installVision": method("installVision", [], json),
@@ -2313,6 +2628,7 @@ window.__ModuleLoader__.load({ id: "dsh-desktop-tools", factory: (require) => {
     const section = ctx.inject(["remote.desktopTools"], (inner) => {
       const tools = () => inner.remote.desktopTools;
       const services = {
+        widgetSnapshot: (refresh) => tools().widgetSnapshot(refresh),
         snapshot: () => tools().snapshot(),
         update: (config) => tools().update(config),
         restart: () => tools().restart(),

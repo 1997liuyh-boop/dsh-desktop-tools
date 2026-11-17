@@ -468,7 +468,7 @@ export class DesktopToolsController {
 
 /** 通过 Gateway 公开给设置客户端的方法。 */
 const REMOTE_METHODS = [
-  'snapshot', 'installVision', 'update', 'restart', 'openCapture', 'diagnose', 'clearHistory',
+  'snapshot', 'widgetSnapshot', 'installVision', 'update', 'restart', 'openCapture', 'diagnose', 'clearHistory',
   'avatar', 'setAvatar', 'restoreAvatar', 'systemPermissions', 'openSystemPermission',
 ] as const
 
@@ -499,13 +499,19 @@ function markRemoteMethods(instance: object, names: readonly string[]): void {
 /** 设置客户端使用的桌面工具 Remote 服务。 */
 export class DesktopToolsService extends TypertRemoteService {
   /** @param ctx Cordis Host。 @param controller 桌面工具控制器。 */
-  constructor(ctx: Context, private readonly controller: DesktopToolsController) {
+  constructor(ctx: Context, private readonly controller: DesktopToolsController, private readonly widget?: import('./widget-monitor.ts').DesktopWidgetMonitor) {
     super(ctx, 'desktopTools')
     markRemoteMethods(this, REMOTE_METHODS)
   }
 
   /** @returns 当前配置与实际运行状态。 */
   snapshot(): Promise<DesktopToolsSnapshot> { return this.controller.refreshedSnapshot() }
+
+  /** @returns 当前会话状态、本机用量与账户余额。 */
+  async widgetSnapshot(refresh: boolean) {
+    if (!this.widget) throw new Error('任务与记账服务尚未就绪')
+    return this.widget.snapshot(refresh === true)
+  }
 
   /** @returns 安装或启用前置插件 dsh-vision-router 的结果。 */
   installVision(): Promise<{ readonly snapshot: DesktopToolsSnapshot; readonly restartRequired: boolean }> { return this.controller.installVision() }

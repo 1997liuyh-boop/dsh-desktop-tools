@@ -8,6 +8,7 @@ import type {
   DesktopSelectionBuiltinItem,
   DesktopSelectionCustomAction,
   DesktopToolsConfig,
+  DesktopTokenRate,
 } from './desktop-tools-types.ts'
 
 export type {
@@ -107,6 +108,7 @@ export function defaultDesktopToolsConfig(platform: NodeJS.Platform = process.pl
       backgroundModel: { ...DEFAULT_MODEL },
       permissionPreset: 'danger-full-access',
       coordinateMode: platform === 'win32' ? 'millifraction' : 'pixel',
+      edgeSnap: true, snapDistance: 24, taskBubbles: true, completionNotifications: true,
     },
     screenshot: { enabled: false, shortcut: DEFAULT_SCREENSHOT_SHORTCUT, longShortcut: '', pinsShortcut: '' },
     recording: {
@@ -114,6 +116,7 @@ export function defaultDesktopToolsConfig(platform: NodeJS.Platform = process.pl
       systemAudio: platform !== 'linux', microphone: false, knowledgeGraph: false,
     },
     history: { enabled: true },
+    accounting: { enabled: true, dailyBudget: 0, rates: [] },
   }
 }
 
@@ -165,6 +168,29 @@ function modelField(value: unknown, name: string): DesktopModelSelection {
   }
 }
 
+/** 有界有限数，避免损坏窗口坐标与账本。 */
+function numberField(record: Record<string, unknown>, name: string, fallback: number, max = 1_000_000): number {
+  const value = record[name]
+  if (value === undefined) return fallback
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > max) throw new Error(`数值配置无效: ${name}`)
+  return value
+}
+
+function ratesField(value: unknown): DesktopTokenRate[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length > 100) throw new Error('模型单价最多 100 项')
+  const seen = new Set<string>()
+  return value.map((item: unknown) => {
+    if (!isRecord(item) || typeof item.provider !== 'string' || !item.provider.trim() || item.provider.length > 200
+      || typeof item.model !== 'string' || !item.model.trim() || item.model.length > 200) throw new Error('模型单价名称无效')
+    const provider = item.provider.trim(), model = item.model.trim(), key = JSON.stringify([provider, model])
+    if (seen.has(key)) throw new Error('模型单价重复')
+    seen.add(key)
+    return { provider, model, input: numberField(item, 'input', 0), cacheRead: numberField(item, 'cacheRead', 0),
+      ...(item.cacheWrite === undefined ? {} : { cacheWrite: numberField(item, 'cacheWrite', 0) }), output: numberField(item, 'output', 0) }
+  })
+}
+
 /** @param value 磁盘中的未知 JSON。 @returns 已校验的完整配置。 */
 export function parseDesktopToolsConfig(value: unknown): DesktopToolsConfig {
   if (!isRecord(value)) throw new Error('桌面工具配置根节点必须为对象')
@@ -182,6 +208,7 @@ export function parseDesktopToolsConfig(value: unknown): DesktopToolsConfig {
   const coordinateMode = floatingBall.coordinateMode
   if (coordinateMode !== 'millifraction' && coordinateMode !== 'pixel') throw new Error('悬浮球坐标模式无效')
   const customActions = customActionsField(selection.customActions)
+  const accounting = value.accounting === undefined ? {} : objectField(value, 'accounting')
   return {
     selection: {
       enabled: booleanField(selection, 'enabled'),
@@ -197,6 +224,10 @@ export function parseDesktopToolsConfig(value: unknown): DesktopToolsConfig {
       backgroundModel: modelField(floatingBall.backgroundModel, 'floatingBall.backgroundModel'),
       permissionPreset,
       coordinateMode,
+      edgeSnap: optionalBoolean(floatingBall, 'edgeSnap', true),
+      snapDistance: numberField(floatingBall, 'snapDistance', 24, 120),
+      taskBubbles: optionalBoolean(floatingBall, 'taskBubbles', true),
+      completionNotifications: optionalBoolean(floatingBall, 'completionNotifications', true),
     },
     screenshot: {
       enabled: booleanField(screenshot, 'enabled'),
@@ -215,6 +246,10 @@ export function parseDesktopToolsConfig(value: unknown): DesktopToolsConfig {
     },
     // 0.7 新增；旧配置没有这一项时默认开启。
     history: { enabled: optionalBoolean(isRecord(value.history) ? value.history : {}, 'enabled', true) },
+    accounting: {
+      enabled: optionalBoolean(accounting, 'enabled', true), dailyBudget: numberField(accounting, 'dailyBudget', 0),
+      rates: ratesField(accounting.rates),
+    },
   }
 }
 

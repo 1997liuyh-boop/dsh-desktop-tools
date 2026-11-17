@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
 import type { DesktopDiagnostics, DesktopModelSelection, DesktopToolsConfig, DesktopToolsSnapshot, DesktopToolsUpdateResult } from '../apps/desktop/src/desktop-tools-types.ts'
 import { DiagnosticsPanel } from './DiagnosticsPanel.tsx'
+import { UsagePanel } from './UsagePanel.tsx'
 import { SelectionActionsEditor } from './SelectionActionsEditor.tsx'
 import { fillDiagnosticText } from '../apps/desktop/src/desktop-diagnostics.ts'
 import type { en } from './locales.ts'
@@ -12,6 +13,7 @@ import { IconChevronDownOutlineRegular, Menu, Switch, type MenuItem } from '@dee
 type Copy = (key: keyof typeof en) => string
 type RemoteResult<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: unknown }
 export interface DesktopToolsSettingsServices {
+  widgetSnapshot(refresh: boolean): Promise<RemoteResult<import('../apps/desktop/src/desktop-tools-types.ts').DesktopWidgetSnapshot>>
   snapshot(): Promise<RemoteResult<DesktopToolsSnapshot>>
   update(config: DesktopToolsConfig): Promise<RemoteResult<DesktopToolsUpdateResult>>
   restart(): Promise<RemoteResult<DesktopToolsSnapshot>>
@@ -96,7 +98,7 @@ export type DesktopToolsSettingsProps = PropsRuntime<'settings.section'>
   & PropsLocale<'desktopTools'>
   & InjectFace<DesktopToolsSettingsInjected>
 
-const tabs = ['selection', 'floating', 'screenshot', 'recording', 'diagnostics'] as const
+const tabs = ['selection', 'floating', 'screenshot', 'recording', 'accounting', 'diagnostics'] as const
 type Tab = typeof tabs[number]
 
 function statusLabel(phase: string, t: Copy): string {
@@ -290,7 +292,7 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
   }
 
   const setFeature = (feature: Tab, enabled: boolean): void => {
-    if (draft === undefined || feature === 'diagnostics') return
+    if (draft === undefined || feature === 'diagnostics' || feature === 'accounting') return
     if (feature === 'selection') setDraft({ ...draft, selection: { ...draft.selection, enabled } })
     else if (feature === 'floating') setDraft({ ...draft, floatingBall: { ...draft.floatingBall, enabled } })
     else if (feature === 'screenshot') setDraft({ ...draft, screenshot: { ...draft.screenshot, enabled } })
@@ -420,7 +422,7 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
     </div>
 
     <div id="desktop-tools-panel" role="tabpanel" aria-labelledby={`desktop-tools-tab-${tab}`} className="flex min-w-0 flex-col pt-0.5">
-      {tab !== 'diagnostics' && <Row title={t(enableKey)} description={enabled ? statusLabel(active?.phase ?? 'disabled', t) : t('featureDisabled')} alert={active?.phase === 'error' && active.error ? active.error : undefined}>
+      {tab !== 'diagnostics' && tab !== 'accounting' && <Row title={t(enableKey)} description={enabled ? statusLabel(active?.phase ?? 'disabled', t) : t('featureDisabled')} alert={active?.phase === 'error' && active.error ? active.error : undefined}>
         <Switch checked={enabled} disabled={busy} label={t(enableKey)} onChange={next => setFeature(tab, next)} />
       </Row>}
 
@@ -451,6 +453,15 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
       </>}
 
       {tab === 'floating' && <>
+        <p className="text-[13px] text-[var(--dsw-alias-label-tertiary)]">{t('clickChatHint')}</p>
+        {(['edgeSnap', 'taskBubbles', 'completionNotifications'] as const).map(field => <Row key={field} title={t(field)}>
+          <Switch checked={draft.floatingBall[field]} disabled={busy} label={t(field)}
+            onChange={value => setDraft({ ...draft, floatingBall: { ...draft.floatingBall, [field]: value } })} />
+        </Row>)}
+        <Row title={t('snapDistance')}>
+          <input type="number" min={0} max={120} step={1} aria-label={t('snapDistance')} className={INPUT_CLASS} disabled={busy || !draft.floatingBall.edgeSnap}
+            value={draft.floatingBall.snapDistance} onChange={event => setDraft({ ...draft, floatingBall: { ...draft.floatingBall, snapDistance: Number(event.currentTarget.value) } })} />
+        </Row>
         <Row title={t('avatar')} description={avatar === undefined && defaultAvatar !== undefined ? `${t('avatarDescription')} ${t('defaultAvatar')}` : t('avatarDescription')}>
           {(avatar ?? defaultAvatar) === undefined ? <span aria-hidden="true" className="size-9 rounded-[var(--dsw-radius-md)] bg-[var(--dsw-alias-bg-module-platform)]" />
             : <img src={avatar ?? defaultAvatar} alt={t('avatar')} className="size-9 rounded-[var(--dsw-radius-md)] object-cover" />}
@@ -476,6 +487,9 @@ export function DesktopToolsSettings({ t, services }: DesktopToolsSettingsProps)
           <button type="button" className={BUTTON_CLASS} onClick={() => { void services.openSystemPermission(right).then(() => { void checkPermissions() }) }}>{t('openSettings')}</button>
         </Row>)}
       </>}
+
+      {tab === 'accounting' && <UsagePanel t={t} services={services} value={draft.accounting} disabled={busy} catalog={catalog}
+        onChange={accounting => setDraft({ ...draft, accounting })} buttonClass={BUTTON_CLASS} inputClass={INPUT_CLASS} />}
 
       {tab === 'screenshot' && <>
         {shortcutRow('screenshot.shortcut')}

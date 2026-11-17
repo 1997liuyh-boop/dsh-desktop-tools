@@ -10,6 +10,7 @@ const styles = [
   ['selection-ui.tw.css', 'selection-toolbar.css'],
   ['selection-ui.tw.css', 'selection-result.css'],
   ['floating-mentions.tw.css', 'floating-mentions.css'],
+  ['floating-status.tw.css', 'floating-status.css'],
   ['capture.tw.css', 'capture.css'],
   ['capture-result.tw.css', 'capture-result.css'],
 ]

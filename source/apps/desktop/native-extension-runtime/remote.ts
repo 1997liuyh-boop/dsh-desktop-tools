@@ -24,6 +24,7 @@ const spec = {
   package: 'dsh-desktop-tools',
   methods: {
     'desktopTools/snapshot': method('snapshot', [], json),
+    'desktopTools/widgetSnapshot': method('widgetSnapshot', [parameter('refresh', z.boolean())], json),
     'desktopTools/update': method('update', [parameter('config', json)], json),
     'desktopTools/restart': method('restart', [], json),
     'desktopTools/installVision': method('installVision', [], json),

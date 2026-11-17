@@ -12,6 +12,8 @@ import { DesktopToolsController, DesktopToolsService, type DesktopRuntimeCommand
 import { createNativeHostBridge } from './host.ts'
 import { resolveHelperExecutable } from './helper-executable.ts'
 import { dshLocalePreference } from '../src/dsh-locale.ts'
+import { DesktopWidgetMonitor, type WidgetMonitorContext } from './widget-monitor.ts'
+import { readDesktopToolsConfig } from '../src/desktop-tools-config.ts'
 import type { DesktopFeatureId } from '../src/desktop-tools-types.ts'
 
 interface Descriptor {
@@ -45,8 +47,8 @@ export class NativeRuntime {
   constructor(private readonly ctx: Context, private readonly config: RuntimeConfig, private readonly onFailure?: (error: Error) => void,
     private readonly onDisableFeature?: (feature: DesktopFeatureId) => void,
     /** 启动辅助进程时传入的 DSH 语言偏好；null 表示跟随系统。 */
-    private readonly localePreference?: () => Promise<string | null>) {
-    this.bridge = createNativeHostBridge(ctx, message => this.send(message))
+    private readonly localePreference?: () => Promise<string | null>, widget?: DesktopWidgetMonitor) {
+    this.bridge = createNativeHostBridge(ctx, message => this.send(message), widget)
   }
 
   /** @param descriptor 安装包拥有的入口和资源。 @returns 仅释放本插件的操作。 */
@@ -271,6 +273,8 @@ export const Config = z.object({
 })
 /** @param ctx 官方注入的服务。 @param config 已校验的运行配置。 */
 export function apply(ctx: Context, config: RuntimeConfig): void {
+  const widget = new DesktopWidgetMonitor(ctx as unknown as WidgetMonitorContext, ctx.profileContext.dir, () => readDesktopToolsConfig(ctx.profileContext.dir))
+  ctx.effect(() => () => widget.dispose())
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
   // DSH 的语言偏好保存在 settings 服务的 locale 项；该服务可选，缺失时辅助进程跟随系统语言。
   const readLocale = async (): Promise<string | null> => {
@@ -287,7 +291,7 @@ export function apply(ctx: Context, config: RuntimeConfig): void {
       void controller.disableFeature(feature).catch((error: unknown) => {
         ctx.logger.error('桌面工具停用失败: %s', error instanceof Error ? error.message : String(error))
       })
-    }, readLocale),
+    }, readLocale, widget),
   })
   // 用户在 DSH 中切换语言时通知辅助进程刷新文案。
   let lastLocale: string | null | undefined
@@ -299,7 +303,7 @@ export function apply(ctx: Context, config: RuntimeConfig): void {
       return controller.localeChanged(preference)
     }).catch((error: unknown) => { ctx.logger.warn('桌面工具语言同步失败: %s', error instanceof Error ? error.message : String(error)) })
   })
-  new DesktopToolsService(ctx, controller)
+  new DesktopToolsService(ctx, controller, widget)
   ctx.effect(() => {
     void controller.start().catch((error: unknown) => {
       ctx.logger.error('桌面工具后台启动失败: %s', error instanceof Error ? error.message : String(error))

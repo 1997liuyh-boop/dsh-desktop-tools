@@ -26,6 +26,16 @@ export interface DesktopToolsConfig {
     readonly backgroundModel: DesktopModelSelection
     readonly permissionPreset: DesktopPermissionPreset
     readonly coordinateMode: DesktopCoordinateMode
+    readonly edgeSnap: boolean
+    readonly snapDistance: number
+    readonly taskBubbles: boolean
+    readonly completionNotifications: boolean
+  }
+  readonly accounting: {
+    readonly enabled: boolean
+    /** 人民币每日估算预算；0 表示不提醒。 */
+    readonly dailyBudget: number
+    readonly rates: readonly DesktopTokenRate[]
   }
   readonly screenshot: {
     readonly enabled: boolean
@@ -55,6 +65,49 @@ export interface DesktopToolsConfig {
     /** 是否把截图、识别结果和录屏路径保存到本机历史（profile/desktop-tools/history）。 */
     readonly enabled: boolean
   }
+}
+
+/** 单价单位为人民币 / 百万 token；推理 token 已包含在输出中。 */
+export interface DesktopTokenRate {
+  readonly provider: string
+  readonly model: string
+  readonly input: number
+  readonly cacheRead: number
+  readonly cacheWrite?: number
+  readonly output: number
+}
+
+export interface DesktopTaskState {
+  readonly sessionId: string
+  readonly title: string
+  readonly state: 'running' | 'waiting' | 'completed' | 'failed'
+  readonly updatedAt: number
+  readonly revision: number
+  readonly turn: number
+}
+
+export interface DesktopUsageTotal {
+  readonly input: number
+  readonly cacheRead: number
+  readonly cacheWrite: number
+  readonly output: number
+  readonly cost: number
+  readonly unpriced: number
+}
+
+export interface DesktopWidgetSnapshot {
+  readonly tasks: readonly DesktopTaskState[]
+  readonly today: DesktopUsageTotal
+  readonly total: DesktopUsageTotal
+  readonly days: readonly (DesktopUsageTotal & { readonly day: string })[]
+  readonly balance: {
+    readonly state: 'ready' | 'unavailable' | 'error'
+    readonly source?: 'api' | 'account'
+    readonly wallets?: readonly { readonly currency: string; readonly balance: number }[]
+    readonly updatedAt?: number
+  }
+  readonly budgetExceeded: boolean
+  readonly storageError: boolean
 }
 
 /** 划词工具栏的内置按钮。 */

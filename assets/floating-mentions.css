@@ -1,6 +1,8 @@
 /*! tailwindcss v4.3.5 | MIT License | https://tailwindcss.com */
 @layer properties;
 :root, :host {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans', Arial,
+    sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
     monospace;
   --color-red-50: oklch(97.1% 0.013 17.38);
@@ -113,6 +115,18 @@
 .mt-0\.5 {
   margin-top: calc(var(--spacing) * 0.5);
 }
+.mt-1 {
+  margin-top: var(--spacing);
+}
+.mt-3 {
+  margin-top: calc(var(--spacing) * 3);
+}
+.mb-0 {
+  margin-bottom: 0px;
+}
+.mb-2 {
+  margin-bottom: calc(var(--spacing) * 2);
+}
 .ml-auto {
   margin-left: auto;
 }
@@ -179,6 +193,9 @@
 .min-h-\[96px\] {
   min-height: 96px;
 }
+.\!w-full {
+  width: 100% !important;
+}
 .w-36 {
   width: calc(var(--spacing) * 36);
 }
@@ -188,8 +205,14 @@
 .w-fit {
   width: fit-content;
 }
+.w-full {
+  width: 100%;
+}
 .max-w-full {
   max-width: 100%;
+}
+.\!min-w-0 {
+  min-width: 0px !important;
 }
 .min-w-0 {
   min-width: 0px;
@@ -230,6 +253,9 @@
 .resize {
   resize: both;
 }
+.grid-cols-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 .flex-col {
   flex-direction: column;
 }
@@ -263,19 +289,34 @@
 .gap-3 {
   gap: calc(var(--spacing) * 3);
 }
+.gap-5 {
+  gap: calc(var(--spacing) * 5);
+}
+.gap-x-5 {
+  column-gap: calc(var(--spacing) * 5);
+}
 .gap-x-6 {
   column-gap: calc(var(--spacing) * 6);
 }
 .gap-x-\[22px\] {
   column-gap: 22px;
 }
+.gap-y-2 {
+  row-gap: calc(var(--spacing) * 2);
+}
 .gap-y-3 {
   row-gap: calc(var(--spacing) * 3);
+}
+.self-end {
+  align-self: flex-end;
 }
 .truncate {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.overflow-x-auto {
+  overflow-x: auto;
 }
 .rounded {
   border-radius: 0.25rem;
@@ -285,6 +326,9 @@
 }
 .rounded-full {
   border-radius: calc(infinity * 1px);
+}
+.rounded-xl {
+  border-radius: var(--radius-xl);
 }
 .border {
   border-style: var(--tw-border-style);
@@ -331,6 +375,12 @@
 .object-cover {
   object-fit: cover;
 }
+.p-3 {
+  padding: calc(var(--spacing) * 3);
+}
+.p-4 {
+  padding: calc(var(--spacing) * 4);
+}
 .px-3 {
   padding-inline: calc(var(--spacing) * 3);
 }
@@ -339,6 +389,9 @@
 }
 .px-px {
   padding-inline: 1px;
+}
+.py-1 {
+  padding-block: var(--spacing);
 }
 .py-2 {
   padding-block: calc(var(--spacing) * 2);
@@ -364,6 +417,9 @@
 .pb-\[9px\] {
   padding-bottom: 9px;
 }
+.text-left {
+  text-align: left;
+}
 .font-\[inherit\] {
   font-family: inherit;
 }
@@ -374,6 +430,10 @@
 .text-sm {
   font-size: var(--text-sm);
   line-height: var(--tw-leading, var(--text-sm--line-height));
+}
+.text-xl {
+  font-size: var(--text-xl);
+  line-height: var(--tw-leading, var(--text-xl--line-height));
 }
 .text-xs {
   font-size: var(--text-xs);
@@ -449,6 +509,10 @@
 }
 .ordinal {
   --tw-ordinal: ordinal;
+  font-variant-numeric: var(--tw-ordinal, ) var(--tw-slashed-zero, ) var(--tw-numeric-figure, ) var(--tw-numeric-spacing, ) var(--tw-numeric-fraction, );
+}
+.tabular-nums {
+  --tw-numeric-spacing: tabular-nums;
   font-variant-numeric: var(--tw-ordinal, ) var(--tw-slashed-zero, ) var(--tw-numeric-figure, ) var(--tw-numeric-spacing, ) var(--tw-numeric-fraction, );
 }
 .line-through {
@@ -597,6 +661,9 @@
   content: var(--tw-content);
 }
 @media (width >= 40rem) {
+  .sm\:grid-cols-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
   .sm\:pr-12 {
     padding-right: calc(var(--spacing) * 12);
   }

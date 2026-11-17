@@ -1,6 +1,8 @@
 /** Typed shell copy for every shipped language owned by the Electron shell. */
 
 export const en = {
+  widgetRunning: 'Task running', widgetWaiting: 'Waiting for your response', widgetCompleted: 'Task finished', widgetFailed: 'Task failed',
+  widgetOpen: 'Open conversation', widgetDismiss: 'Dismiss', widgetCost: 'Today’s estimated cost', widgetBudget: 'Daily estimate reached your budget',
   platformAccessTitle: 'Verify access to DeepSeek',
   cliCommandMenu: 'Manage dsh Command…',
   cliCommandTitle: 'Manage dsh Command',
@@ -515,6 +517,8 @@ export const en = {
 export type DesktopMessages = { readonly [Key in keyof typeof en]: string }
 
 export const zh = {
+  widgetRunning: '任务正在执行', widgetWaiting: '等待您的处理', widgetCompleted: '任务已结束', widgetFailed: '任务执行失败',
+  widgetOpen: '打开对话', widgetDismiss: '关闭气泡', widgetCost: '今日估算费用', widgetBudget: '今日估算费用已达到预算',
   platformAccessTitle: 'DeepSeek 访问验证',
   cliCommandMenu: '管理 dsh 命令…',
   cliCommandTitle: '管理 dsh 命令',

@@ -1,5 +1,14 @@
 /** 桌面工具设置页的中英文文案。 */
 export const en = {
+  tokenCacheWrite: 'Cache creation',
+  accounting: 'Usage & balance', accountingEnabled: 'Record local usage', accountingHint: 'Counts new DSH message events on this device while enabled. Balance is an account observation; estimated costs are calculated separately in CNY. Reasoning tokens are included in output.',
+  edgeSnap: 'Snap to screen edges', snapDistance: 'Snap distance (px)', taskBubbles: 'Task status bubbles', completionNotifications: 'Task completion and budget notifications',
+  clickChatHint: 'Click to chat; hold and drag to move. Left and right edges collapse to a tab; top and bottom edges keep the ball visible.',
+  todayUsage: 'Today', totalUsage: 'All recorded usage', actualBalance: 'Account balance', balanceUnavailable: 'Balance unavailable. Configure a DeepSeek API key in DSH or sign in to a supported account service.', balanceError: 'Balance refresh failed. Try again later.',
+  balanceApi: 'DeepSeek API key', balanceAccount: 'DSH account', updatedAt: 'Updated', refreshBalance: 'Refresh balance', dailyBudget: 'Daily estimate budget (CNY, 0 disables reminder)',
+  tokenInput: 'Input', tokenCache: 'Cached input', tokenOutput: 'Output', estimatedCost: 'Estimated cost (CNY)', unpricedTokens: 'Tokens without configured rates',
+  tokenRates: 'Model rates · CNY / million tokens', ratesHint: 'Use provider and model IDs from DSH with your provider’s rates. Unconfigured models remain unpriced; new rates apply only to future messages.',
+  addRate: 'Add rate', removeRate: 'Remove', usageStorageError: 'The local usage ledger could not be read or saved. Recording has stopped; the existing file has been preserved.', usageRefreshError: 'Could not refresh usage.', usageDays: 'Recent 30 recorded days', usageDate: 'Date',
   title: 'Desktop tools', selection: 'Selection toolbar', floating: 'Floating assistant', screenshot: 'Screenshot', recording: 'Screen recording',
   intro: 'Selection toolbar, floating assistant, screenshot and screen recording that work across the whole system.',
   enableSelection: 'Enable selection toolbar', enableFloating: 'Enable floating assistant', enableScreenshot: 'Enable screenshot', enableRecording: 'Enable screen recording',
@@ -67,6 +76,15 @@ export const en = {
 } as const
 
 export const zh = {
+  tokenCacheWrite: '缓存创建',
+  accounting: '用量与余额', accountingEnabled: '记录本机用量', accountingHint: '仅统计开启期间本机收到的新 DSH 消息事件。余额是账户查询值，估算费用以人民币单独计算；推理 token 已包含在输出中。',
+  edgeSnap: '拖拽边缘吸附', snapDistance: '吸附距离（像素）', taskBubbles: '任务状态气泡', completionNotifications: '任务完成与预算提醒',
+  clickChatHint: '点击开始对话，按住拖动调整位置。左右吸附为细条，上下吸附保持球体可见。',
+  todayUsage: '今日用量', totalUsage: '累计记录用量', actualBalance: '账户余额', balanceUnavailable: '暂无法读取余额。请在 DSH 配置 DeepSeek API Key，或登录支持余额查询的账户服务。', balanceError: '余额刷新失败，请稍后重试。',
+  balanceApi: 'DeepSeek API Key', balanceAccount: 'DSH 账户', updatedAt: '更新时间', refreshBalance: '刷新余额', dailyBudget: '每日估算预算（元，0 表示不提醒）',
+  tokenInput: '输入', tokenCache: '缓存输入', tokenOutput: '输出', estimatedCost: '估算费用（元）', unpricedTokens: '未配置单价的 token',
+  tokenRates: '模型单价 · 元 / 百万 token', ratesHint: '填写 DSH 的服务商和模型 ID，以及服务商公布的单价。未配置模型保留为未计价；新单价只应用于后续消息。',
+  addRate: '添加单价', removeRate: '移除', usageStorageError: '无法读取或保存本机账本，已停止记录并保留原文件。', usageRefreshError: '无法刷新用量，请重试。', usageDays: '最近 30 个有记录的日期', usageDate: '日期',
   title: '桌面工具', selection: '划词工具栏', floating: '悬浮球', screenshot: '截图', recording: '录屏',
   intro: '在整个系统里使用的划词工具栏、悬浮球、截图与录屏。',
   enableSelection: '启用划词工具栏', enableFloating: '启用悬浮球', enableScreenshot: '启用截图', enableRecording: '启用录屏',

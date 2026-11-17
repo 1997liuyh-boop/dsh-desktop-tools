@@ -69,6 +69,8 @@ export const DESKTOP_IPC = {
   floatingFocusMain: 'dsh-desktop:floating-focus-main',
   floatingQuit: 'dsh-desktop:floating-quit',
   floatingRunning: 'dsh-desktop:floating-running',
+  floatingWidgetState: 'dsh-desktop:floating-widget-state',
+  floatingWidgetOpen: 'dsh-desktop:floating-widget-open',
   floatingEditing: 'dsh-desktop:floating-editing',
   floatingRestoreFront: 'dsh-desktop:floating-restore-front',
   floatingAvatarGet: 'dsh-desktop:floating-avatar-get',

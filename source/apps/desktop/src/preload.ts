@@ -4,6 +4,18 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { DESKTOP_IPC, type SelectionResultResponse } from './ipc.ts'
 
 const floating = {
+  widgetState: () => ipcRenderer.invoke(DESKTOP_IPC.floatingWidgetState),
+  openWidget: (action?: string) => ipcRenderer.invoke(DESKTOP_IPC.floatingWidgetOpen, action),
+  onWidgetState: (listener: (state: unknown) => void) => {
+    const handle = (_event: Electron.IpcRendererEvent, state: unknown): void => { listener(state) }
+    ipcRenderer.on(DESKTOP_IPC.floatingWidgetState, handle)
+    return () => { ipcRenderer.off(DESKTOP_IPC.floatingWidgetState, handle) }
+  },
+  onWidgetOpen: (listener: (sessionId: string) => void) => {
+    const handle = (_event: Electron.IpcRendererEvent, sessionId: string): void => { listener(sessionId) }
+    ipcRenderer.on(DESKTOP_IPC.floatingWidgetOpen, handle)
+    return () => { ipcRenderer.off(DESKTOP_IPC.floatingWidgetOpen, handle) }
+  },
   sessionCatalog: () => ipcRenderer.invoke(DESKTOP_IPC.floatingCatalogGet),
   navigateSession: (request: unknown) => ipcRenderer.invoke(DESKTOP_IPC.floatingNavigate, request),
   onSessionCatalog: (listener: (catalog: unknown) => void) => {

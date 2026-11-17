@@ -107,7 +107,11 @@ function defaultDesktopToolsConfig(platform = process.platform) {
 			conversationModel: { ...DEFAULT_MODEL },
 			backgroundModel: { ...DEFAULT_MODEL },
 			permissionPreset: "danger-full-access",
-			coordinateMode: platform === "win32" ? "millifraction" : "pixel"
+			coordinateMode: platform === "win32" ? "millifraction" : "pixel",
+			edgeSnap: true,
+			snapDistance: 24,
+			taskBubbles: true,
+			completionNotifications: true
 		},
 		screenshot: {
 			enabled: false,
@@ -124,7 +128,12 @@ function defaultDesktopToolsConfig(platform = process.platform) {
 			microphone: false,
 			knowledgeGraph: false
 		},
-		history: { enabled: true }
+		history: { enabled: true },
+		accounting: {
+			enabled: true,
+			dailyBudget: 0,
+			rates: []
+		}
 	};
 }
 function isRecord(value) {
@@ -164,6 +173,32 @@ function modelField(value, name) {
 		...value.reasoningEffort === void 0 ? {} : { reasoningEffort: value.reasoningEffort }
 	};
 }
+/** 有界有限数，避免损坏窗口坐标与账本。 */
+function numberField(record, name, fallback, max = 1e6) {
+	const value = record[name];
+	if (value === void 0) return fallback;
+	if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > max) throw new Error(`数值配置无效: ${name}`);
+	return value;
+}
+function ratesField(value) {
+	if (value === void 0) return [];
+	if (!Array.isArray(value) || value.length > 100) throw new Error("模型单价最多 100 项");
+	const seen = /* @__PURE__ */ new Set();
+	return value.map((item) => {
+		if (!isRecord(item) || typeof item.provider !== "string" || !item.provider.trim() || item.provider.length > 200 || typeof item.model !== "string" || !item.model.trim() || item.model.length > 200) throw new Error("模型单价名称无效");
+		const provider = item.provider.trim(), model = item.model.trim(), key = JSON.stringify([provider, model]);
+		if (seen.has(key)) throw new Error("模型单价重复");
+		seen.add(key);
+		return {
+			provider,
+			model,
+			input: numberField(item, "input", 0),
+			cacheRead: numberField(item, "cacheRead", 0),
+			...item.cacheWrite === void 0 ? {} : { cacheWrite: numberField(item, "cacheWrite", 0) },
+			output: numberField(item, "output", 0)
+		};
+	});
+}
 /** @param value 磁盘中的未知 JSON。 @returns 已校验的完整配置。 */
 function parseDesktopToolsConfig(value) {
 	if (!isRecord(value)) throw new Error("桌面工具配置根节点必须为对象");
@@ -178,6 +213,7 @@ function parseDesktopToolsConfig(value) {
 	const coordinateMode = floatingBall.coordinateMode;
 	if (coordinateMode !== "millifraction" && coordinateMode !== "pixel") throw new Error("悬浮球坐标模式无效");
 	const customActions = customActionsField(selection.customActions);
+	const accounting = value.accounting === void 0 ? {} : objectField(value, "accounting");
 	return {
 		selection: {
 			enabled: booleanField(selection, "enabled"),
@@ -192,7 +228,11 @@ function parseDesktopToolsConfig(value) {
 			conversationModel: modelField(floatingBall.conversationModel, "floatingBall.conversationModel"),
 			backgroundModel: modelField(floatingBall.backgroundModel, "floatingBall.backgroundModel"),
 			permissionPreset,
-			coordinateMode
+			coordinateMode,
+			edgeSnap: optionalBoolean(floatingBall, "edgeSnap", true),
+			snapDistance: numberField(floatingBall, "snapDistance", 24, 120),
+			taskBubbles: optionalBoolean(floatingBall, "taskBubbles", true),
+			completionNotifications: optionalBoolean(floatingBall, "completionNotifications", true)
 		},
 		screenshot: {
 			enabled: booleanField(screenshot, "enabled"),
@@ -209,7 +249,12 @@ function parseDesktopToolsConfig(value) {
 			microphone: optionalBoolean(recording, "microphone", false),
 			knowledgeGraph: optionalBoolean(recording, "knowledgeGraph", false)
 		},
-		history: { enabled: optionalBoolean(isRecord(value.history) ? value.history : {}, "enabled", true) }
+		history: { enabled: optionalBoolean(isRecord(value.history) ? value.history : {}, "enabled", true) },
+		accounting: {
+			enabled: optionalBoolean(accounting, "enabled", true),
+			dailyBudget: numberField(accounting, "dailyBudget", 0),
+			rates: ratesField(accounting.rates)
+		}
 	};
 }
 /** @param profileDir 当前 DSH profile。 @returns 磁盘配置；文件不存在时返回首次安装默认值。 */

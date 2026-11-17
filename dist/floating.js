@@ -1,12 +1,12 @@
-import { n as SCHEME, t as DESKTOP_IPC } from "./ipc-whBK8Kjb.js";
-import { _ as raiseOverlayAboveObservationFrame, a as applyFloatingOverlayGuard, c as moveFloatingBall, d as resetFloatingOverlayGuard, f as setFloatingExpanded, g as hideObservationFrame, h as createObservationFrameWindow, i as writeOrbAgentModels, l as overlayWindowExcludeIds, o as clampFloatingWindow, p as unsnapDockedBall, r as readOrbAgentModels, s as createFloatingWindow, t as isOrbAgentModelSelection, v as showObservationFrame } from "./orb-agent-models-CfuNtLlv.js";
-import { i as writeDesktopToolsConfig, r as readDesktopToolsConfig } from "./desktop-tools-config-C0hCUcBZ.js";
+import { n as SCHEME, t as DESKTOP_IPC } from "./ipc-rPS0U-Fv.js";
+import { _ as hideObservationFrame, a as applyFloatingOverlayGuard, c as floatingBallOrigin, f as resetFloatingOverlayGuard, g as createObservationFrameWindow, i as writeOrbAgentModels, l as moveFloatingBall, m as unsnapDockedBall, o as clampFloatingWindow, p as setFloatingExpanded, r as readOrbAgentModels, s as createFloatingWindow, t as isOrbAgentModelSelection, u as overlayWindowExcludeIds, v as raiseOverlayAboveObservationFrame, y as showObservationFrame } from "./orb-agent-models-DZGmNze5.js";
+import { i as writeDesktopToolsConfig, r as readDesktopToolsConfig } from "./desktop-tools-config-3G2LrnvZ.js";
 import { a as installOrbAvatarFromPath, c as orbSettingsSupported, d as serveOrbAvatar, o as orbAvatarCacheToken, r as assertOrbSettingsWritable, s as orbAvatarUrl, t as DEFAULT_ORB_AVATAR_FILE, u as restoreOrbAvatar } from "./orb-avatar-DgC5zfjx.js";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { BrowserWindow, app, dialog, screen, shell, systemPreferences } from "electron";
+import { BrowserWindow, Notification, app, dialog, screen, shell, systemPreferences } from "electron";
 // source/apps/desktop/src/macos-sck-napi.ts
 let binding;
 function loadBinding() {
@@ -96,6 +96,161 @@ async function applyMillifractionCoordinates(input) {
 		enabled: input.requestedEnabled
 	};
 }
+// source/apps/desktop/src/floating-widget.ts
+/** 独立状态气泡不改变聊天窗口尺寸，也不抢占前台焦点。 */
+async function attachFloatingWidget(context, ball) {
+	const bubble = context.own(new BrowserWindow({
+		width: 264,
+		height: 116,
+		show: false,
+		frame: false,
+		transparent: true,
+		resizable: false,
+		skipTaskbar: true,
+		focusable: false,
+		alwaysOnTop: true,
+		hasShadow: false,
+		webPreferences: {
+			preload: context.environment.preload,
+			contextIsolation: true,
+			nodeIntegration: false,
+			sandbox: true
+		}
+	}));
+	bubble.setAlwaysOnTop(true, "screen-saver");
+	let snapshot;
+	let selected;
+	let stopped = false, initialized = false;
+	const completedTurns = /* @__PURE__ */ new Map();
+	const notifications = /* @__PURE__ */ new Set();
+	const control = new AbortController();
+	let dismissed;
+	let lastBudgetDay;
+	const messages = () => context.environment.locale().messages;
+	const open = (id) => {
+		if (ball.isDestroyed()) return;
+		ball.webContents.send(DESKTOP_IPC.floatingWidgetOpen, id);
+		ball.show();
+	};
+	const notify = (title, body, id) => {
+		if (!Notification.isSupported()) return;
+		const item = new Notification({
+			title,
+			body
+		});
+		notifications.add(item);
+		item.once("close", () => notifications.delete(item));
+		item.once("click", () => {
+			if (id) open(id);
+			else context.showMain();
+		});
+		item.show();
+	};
+	const position = () => {
+		if (ball.isDestroyed() || bubble.isDestroyed()) return;
+		const origin = floatingBallOrigin(ball);
+		const area = screen.getDisplayNearestPoint({
+			x: Math.round(origin.x),
+			y: Math.round(origin.y)
+		}).workArea;
+		const x = origin.x - area.x > area.width / 2 ? origin.x - 268 : origin.x + 76;
+		bubble.setPosition(Math.round(Math.max(area.x, Math.min(x, area.x + area.width - 264))), Math.round(Math.max(area.y, Math.min(origin.y - 16, area.y + area.height - 116))));
+	};
+	const view = () => ({
+		task: selected,
+		today: snapshot?.today,
+		labels: {
+			running: messages().widgetRunning,
+			waiting: messages().widgetWaiting,
+			completed: messages().widgetCompleted,
+			failed: messages().widgetFailed,
+			open: messages().widgetOpen,
+			dismiss: messages().widgetDismiss,
+			cost: messages().widgetCost
+		}
+	});
+	context.handle(DESKTOP_IPC.floatingWidgetState, (event) => {
+		context.assertSender(event);
+		return view();
+	});
+	context.handle(DESKTOP_IPC.floatingWidgetOpen, (event, action) => {
+		context.assertSender(event);
+		if (action === "dismiss") {
+			dismissed = selected ? `${selected.sessionId}:${selected.revision}` : void 0;
+			bubble.hide();
+			return;
+		}
+		if (selected) open(selected.sessionId);
+	});
+	const render = () => {
+		if (stopped || bubble.isDestroyed()) return;
+		const preferences = readDesktopToolsConfig(context.environment.profile).floatingBall;
+		const tasks = snapshot?.tasks ?? [];
+		selected = tasks.find((task) => task.state === "waiting") ?? tasks.find((task) => task.state === "running") ?? tasks.find((task) => Date.now() - task.updatedAt < 1e4);
+		if (!preferences.taskBubbles || !selected || dismissed === `${selected.sessionId}:${selected.revision}` || !ball.isVisible() || ball.getBounds().width > 96) {
+			bubble.hide();
+			return;
+		}
+		position();
+		bubble.webContents.send(DESKTOP_IPC.floatingWidgetState, view());
+		bubble.showInactive();
+	};
+	const poll = async () => {
+		try {
+			const response = await context.request("/.dsh/native-command", JSON.stringify({ command: "widget-snapshot" }), AbortSignal.any([control.signal, AbortSignal.timeout(1e4)]));
+			const result = await response.json();
+			if (stopped) return;
+			if (!response.ok || !result.ok || !Array.isArray(result.value?.tasks)) throw new Error("任务状态不可用");
+			snapshot = result.value;
+			const preferences = readDesktopToolsConfig(context.environment.profile);
+			for (const task of snapshot.tasks) {
+				if (task.state !== "completed" && task.state !== "failed") continue;
+				if (initialized && completedTurns.get(task.sessionId) !== task.turn && preferences.floatingBall.completionNotifications) notify(task.state === "failed" ? messages().widgetFailed : messages().widgetCompleted, task.title, task.sessionId);
+				completedTurns.set(task.sessionId, task.turn);
+			}
+			for (const id of completedTurns.keys()) if (!snapshot.tasks.some((task) => task.sessionId === id)) completedTurns.delete(id);
+			const today = (/* @__PURE__ */ new Date()).toLocaleDateString();
+			if (initialized && snapshot.budgetExceeded && preferences.floatingBall.completionNotifications && lastBudgetDay !== today) {
+				lastBudgetDay = today;
+				notify(messages().widgetBudget, `${messages().widgetCost} ¥${snapshot.today.cost.toFixed(4)}`);
+			}
+			initialized = true;
+			render();
+		} catch {
+			if (!stopped) {
+				snapshot = void 0;
+				selected = void 0;
+				bubble.hide();
+			}
+		} finally {
+			if (!stopped) timer = setTimeout(() => {
+				poll();
+			}, 1500);
+		}
+	};
+	let timer;
+	const hide = () => {
+		if (!bubble.isDestroyed()) bubble.hide();
+	};
+	ball.on("move", position);
+	ball.on("resize", position);
+	ball.on("hide", hide);
+	context.onConfig(render);
+	context.onLocale(render);
+	context.onStop(() => {
+		stopped = true;
+		clearTimeout(timer);
+		control.abort();
+		ball.off("move", position);
+		ball.off("resize", position);
+		ball.off("hide", hide);
+		for (const item of notifications) item.close();
+		notifications.clear();
+	});
+	await bubble.loadURL(`${SCHEME}://shell/floating-status.html`);
+	poll();
+	return bubble;
+}
 // source/apps/desktop/src/tcc.ts
 const TCC_SETTINGS_URL = {
 	screen: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
@@ -144,6 +299,9 @@ const shellAssets = [
 	"/floating.css",
 	"/floating-mentions.css",
 	"/floating-mentions.tw.css",
+	"/floating-status.html",
+	"/floating-status.js",
+	"/floating-status.css",
 	"/deepseek-avatar-square.gif",
 	"/observation-frame.html",
 	"/observation-frame.css",
@@ -354,6 +512,7 @@ async function activate(context) {
 		publishTcc();
 	});
 	await floatingWindow.loadURL(`${SCHEME}://shell/floating.html`);
+	const widgetWindow = environment.standalone ? await attachFloatingWidget(context, floatingWindow) : void 0;
 	const ensureObservationFrameWindow = () => {
 		if (observationFrameWindow !== void 0 && !observationFrameWindow.isDestroyed()) return;
 		observationFrameWindow = context.own(createObservationFrameWindow());
@@ -370,6 +529,7 @@ async function activate(context) {
 	const restoreOverlayGuard = () => {
 		hideObservationFrame(observationFrameWindow);
 		if (!floatingShell.isDestroyed()) resetFloatingOverlayGuard(floatingShell);
+		if (widgetWindow && !widgetWindow.isDestroyed()) resetFloatingOverlayGuard(widgetWindow);
 		const toolbarWindow = context.service("selection")?.window();
 		if (toolbarWindow !== void 0 && !toolbarWindow.isDestroyed()) resetFloatingOverlayGuard(toolbarWindow);
 		context.service("selection")?.setHidInput(false);
@@ -383,10 +543,11 @@ async function activate(context) {
 	orbHostHandlers.onOverlayGuard = (event) => {
 		if (floatingShell.isDestroyed()) return [];
 		applyFloatingOverlayGuard(floatingShell, event.mode, event.action);
+		if (widgetWindow && !widgetWindow.isDestroyed()) applyFloatingOverlayGuard(widgetWindow, event.mode, event.action);
 		const toolbarWindow = context.service("selection")?.window();
 		if (toolbarWindow !== void 0 && !toolbarWindow.isDestroyed()) applyFloatingOverlayGuard(toolbarWindow, event.mode, event.action);
 		if (event.mode === "input") context.service("selection")?.setHidInput(event.action === "begin");
-		const ids = overlayWindowExcludeIds(floatingShell, toolbarWindow, observationFrameWindow);
+		const ids = overlayWindowExcludeIds(floatingShell, toolbarWindow, observationFrameWindow, widgetWindow);
 		if (event.mode === "input" && event.action === "begin") {
 			blurMainIfFocused();
 			try {
@@ -415,12 +576,13 @@ async function activate(context) {
 	});
 	context.handle(DESKTOP_IPC.floatingMove, (event, x, y, canDock) => {
 		shellSender(event);
-		if (typeof x !== "number" || typeof y !== "number") throw new Error("dsh desktop: invalid floating move");
+		if (typeof x !== "number" || typeof y !== "number" || !Number.isFinite(x) || !Number.isFinite(y)) throw new Error("dsh desktop: invalid floating move");
 		return moveFloatingBall(floatingWindow, x, y, canDock !== false);
 	});
 	context.handle(DESKTOP_IPC.floatingClamp, (event, canDock) => {
 		shellSender(event);
-		return clampFloatingWindow(floatingWindow, canDock !== false);
+		const preferences = readDesktopToolsConfig(paths.profile).floatingBall;
+		return clampFloatingWindow(floatingWindow, canDock !== false && preferences.edgeSnap, preferences.snapDistance);
 	});
 	context.handle(DESKTOP_IPC.floatingUnsnap, (event) => {
 		shellSender(event);
